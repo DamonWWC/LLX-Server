@@ -1,0 +1,419 @@
+# 林龍香大米商城 - .NET 8 Minimal API 开发规则
+
+## 项目概述
+这是一个基于 .NET 8 Minimal API 的现代化后端服务，为微信小程序"林龍香大米商城"提供完整的 API 支持。
+
+## 技术栈
+- .NET 8 Minimal API
+- Entity Framework Core 8
+- PostgreSQL 16
+- Redis 7.2
+- Serilog
+- Swagger/OpenAPI
+
+## 代码规范
+
+### 命名约定
+- **类名**: PascalCase，如 `ProductService`
+- **接口名**: I + PascalCase，如 `IProductService`
+- **方法名**: PascalCase，如 `GetAllAsync`
+- **参数/变量**: camelCase，如 `productId`
+- **常量**: PascalCase，如 `CacheKeyAll`
+- **私有字段**: _camelCase，如 `_repository`
+
+### 异步编程
+- 所有 I/O 操作必须使用异步方法
+- 异步方法名必须以 `Async` 结尾
+- 使用 `async/await`，不要使用 `.Result` 或 `.Wait()`
+
+```csharp
+// ✅ 正确
+public async Task<List<Product>> GetAllAsync()
+{
+    return await _repository.GetAllAsync();
+}
+
+// ❌ 错误
+public List<Product> GetAll()
+{
+    return _repository.GetAllAsync().Result;
+}
+```
+
+### API 响应格式
+- 统一使用 `ApiResponse<T>` 响应格式
+- 成功响应使用 `ApiResponse<T>.SuccessResponse()`
+- 错误响应使用 `ApiResponse<T>.ErrorResponse()`
+
+```csharp
+// ✅ 正确
+return Results.Ok(ApiResponse<List<ProductDto>>.SuccessResponse(products));
+
+// ❌ 错误
+return Results.Ok(products);
+```
+
+## 架构模式
+
+### 分层架构
+- **Endpoints**: API 端点层，只负责路由和参数验证
+- **Services**: 业务逻辑层，处理业务规则
+- **Repositories**: 数据访问层，处理数据库操作
+- **Models**: 数据模型层，包含实体和 DTO
+
+### 职责划分
+- **Endpoints**: 路由、参数验证、调用服务、返回响应
+- **Services**: 业务逻辑、缓存管理、数据转换
+- **Repositories**: 数据库 CRUD 操作、查询优化
+- **Models**: 数据定义、验证规则
+
+### 代码示例
+
+#### Endpoint 示例
+```csharp
+public static void MapProductEndpoints(this IEndpointRouteBuilder app)
+{
+    var group = app.MapGroup("/api/products")
+        .WithTags("Products")
+        .WithOpenApi();
+
+    group.MapGet("/", async (IProductService service) =>
+    {
+        var products = await service.GetAllAsync();
+        return Results.Ok(ApiResponse<List<ProductDto>>.SuccessResponse(products));
+    })
+    .WithName("GetProducts")
+    .Produces<ApiResponse<List<ProductDto>>>();
+}
+```
+
+#### Service 示例
+```csharp
+public class ProductService : IProductService
+{
+    private readonly IProductRepository _repository;
+    private readonly ICacheService _cache;
+    private readonly ILogger<ProductService> _logger;
+
+    public ProductService(
+        IProductRepository repository, 
+        ICacheService cache, 
+        ILogger<ProductService> logger)
+    {
+        _repository = repository;
+        _cache = cache;
+        _logger = logger;
+    }
+
+    public async Task<List<ProductDto>> GetAllAsync()
+    {
+        _logger.LogInformation("Getting all products");
+        
+        // 尝试从缓存获取
+        var cached = await _cache.GetAsync<List<ProductDto>>("products:all");
+        if (cached != null)
+            return cached;
+
+        // 从数据库获取
+        var products = await _repository.GetAllAsync();
+        var dtos = products.Select(MapToDto).ToList();
+
+        // 写入缓存
+        await _cache.SetAsync("products:all", dtos, TimeSpan.FromHours(1));
+
+        return dtos;
+    }
+}
+```
+
+## Entity Framework Core 规范
+
+### DbContext 配置
+- 在 `OnModelCreating` 中配置实体关系
+- 使用 Fluent API 配置约束和索引
+- 配置默认值和计算列
+
+```csharp
+protected override void OnModelCreating(ModelBuilder modelBuilder)
+{
+    modelBuilder.Entity<Product>(entity =>
+    {
+        entity.HasKey(e => e.Id);
+        entity.Property(e => e.Name).IsRequired().HasMaxLength(100);
+        entity.Property(e => e.Price).HasColumnType("decimal(10,2)");
+        entity.HasIndex(e => e.Name).HasDatabaseName("idx_products_name");
+    });
+}
+```
+
+### 查询规范
+- 使用 `AsNoTracking()` 优化只读查询
+- 使用 `Include()` 预加载关联数据
+- 使用分页查询避免大数据量
+
+```csharp
+// ✅ 正确
+public async Task<List<Product>> GetAllAsync()
+{
+    return await _context.Products
+        .AsNoTracking()
+        .ToListAsync();
+}
+
+// ✅ 分页查询
+public async Task<PagedResult<Product>> GetPagedAsync(int page, int pageSize)
+{
+    var query = _context.Products.AsNoTracking();
+    var totalCount = await query.CountAsync();
+    var items = await query
+        .Skip((page - 1) * pageSize)
+        .Take(pageSize)
+        .ToListAsync();
+    
+    return new PagedResult<Product>
+    {
+        Items = items,
+        TotalCount = totalCount,
+        Page = page,
+        PageSize = pageSize
+    };
+}
+```
+
+## Redis 缓存规范
+
+### 缓存键命名
+- 使用冒号分隔层级：`llxrice:products:all`
+- 包含版本信息：`llxrice:v1:products:1`
+- 使用有意义的名称
+
+### 缓存策略
+- 热点数据缓存：商品列表、运费配置
+- 设置合理的过期时间
+- 实现缓存失效机制
+
+```csharp
+// 缓存键常量
+private const string CacheKeyAll = "llxrice:products:all";
+private const string CacheKeyPrefix = "llxrice:products:";
+
+// 缓存操作
+public async Task<List<ProductDto>> GetAllAsync()
+{
+    var cached = await _cache.GetAsync<List<ProductDto>>(CacheKeyAll);
+    if (cached != null)
+        return cached;
+
+    var products = await _repository.GetAllAsync();
+    var dtos = products.Select(MapToDto).ToList();
+
+    // 随机过期时间，防止缓存雪崩
+    var expiry = TimeSpan.FromMinutes(50 + new Random().Next(20));
+    await _cache.SetAsync(CacheKeyAll, dtos, expiry);
+
+    return dtos;
+}
+```
+
+## 错误处理
+
+### 异常类型
+- 业务异常：`ArgumentException`、`InvalidOperationException`
+- 数据异常：`DbUpdateException`
+- 缓存异常：`RedisException`
+
+### 全局异常处理
+- 使用 `ExceptionMiddleware` 处理未捕获异常
+- 记录详细错误日志
+- 返回统一的错误响应
+
+```csharp
+public async Task<Product> GetByIdAsync(int id)
+{
+    var product = await _repository.GetByIdAsync(id);
+    if (product == null)
+        throw new ArgumentException($"商品 {id} 不存在");
+    
+    return product;
+}
+```
+
+## 日志记录
+
+### 日志级别
+- **Information**: 正常业务流程
+- **Warning**: 可恢复的错误
+- **Error**: 需要关注的错误
+- **Fatal**: 系统级错误
+
+### 日志示例
+```csharp
+_logger.LogInformation("Getting product {ProductId}", id);
+_logger.LogWarning("Product {ProductId} not found", id);
+_logger.LogError(ex, "Failed to get product {ProductId}", id);
+```
+
+## 数据验证
+
+### 输入验证
+- 使用 Data Annotations 验证模型
+- 在 Endpoint 层验证参数
+- 返回详细的验证错误信息
+
+```csharp
+public class CreateProductDto
+{
+    [Required(ErrorMessage = "商品名称不能为空")]
+    [MaxLength(100, ErrorMessage = "商品名称不能超过100个字符")]
+    public string Name { get; set; } = string.Empty;
+
+    [Range(0.01, 999999.99, ErrorMessage = "价格必须在0.01-999999.99之间")]
+    public decimal Price { get; set; }
+}
+```
+
+## 性能优化
+
+### 数据库优化
+- 使用连接池
+- 优化查询语句
+- 添加适当的索引
+- 使用 `AsNoTracking()` 优化只读查询
+
+### 缓存优化
+- 缓存热点数据
+- 设置合理的过期时间
+- 实现缓存预热
+
+### 异步编程
+- 所有 I/O 操作使用异步
+- 避免阻塞调用
+- 使用 `ConfigureAwait(false)` 在库代码中
+
+## 测试规范
+
+### 单元测试
+- 测试覆盖率 > 80%
+- 使用 Mock 对象
+- 测试边界条件
+
+### 集成测试
+- 测试 API 端点
+- 测试数据库操作
+- 测试缓存功能
+
+## Git 提交规范
+
+### 提交格式
+```
+<type>(<scope>): <subject>
+
+<body>
+
+<footer>
+```
+
+### 类型说明
+- **feat**: 新功能
+- **fix**: 修复问题
+- **docs**: 文档更新
+- **refactor**: 重构代码
+- **perf**: 性能优化
+- **test**: 测试相关
+- **chore**: 构建过程或辅助工具的变动
+
+### 示例
+```
+feat(products): 添加商品分页查询功能
+
+- 实现 GetPagedAsync 方法
+- 添加 PagedResult 返回类型
+- 更新相关 DTO
+
+Closes #123
+```
+
+## 开发工作流
+
+### 分支管理
+- `main`: 主分支，稳定版本
+- `develop`: 开发分支
+- `feature/*`: 功能分支
+- `hotfix/*`: 热修复分支
+
+### 代码审查
+- 所有代码必须经过审查
+- 检查代码规范
+- 验证测试覆盖
+- 确认性能影响
+
+## 常用命令
+
+### 数据库迁移
+```bash
+# 添加迁移
+dotnet ef migrations add MigrationName
+
+# 更新数据库
+dotnet ef database update
+
+# 回滚迁移
+dotnet ef database update PreviousMigration
+```
+
+### 运行项目
+```bash
+# 开发环境
+dotnet run --environment Development
+
+# 生产环境
+dotnet run --environment Production
+```
+
+### 测试
+```bash
+# 运行所有测试
+dotnet test
+
+# 运行特定测试
+dotnet test --filter "FullyQualifiedName~ProductService"
+```
+
+## 注意事项
+
+### 禁止事项
+- ❌ 不要使用同步 I/O 操作
+- ❌ 不要硬编码配置信息
+- ❌ 不要忽略异常
+- ❌ 不要在生产环境使用 `AllowAnyOrigin()`
+
+### 推荐做法
+- ✅ 使用依赖注入
+- ✅ 实现接口抽象
+- ✅ 添加详细日志
+- ✅ 编写单元测试
+- ✅ 使用配置管理
+- ✅ 实现健康检查
+
+## 快速参考
+
+### 创建新功能
+1. 创建实体模型
+2. 创建 DTO
+3. 创建 Repository 接口和实现
+4. 创建 Service 接口和实现
+5. 创建 Endpoint
+6. 添加测试
+7. 更新文档
+
+### 调试技巧
+- 使用 Serilog 结构化日志
+- 检查健康检查端点
+- 查看数据库查询日志
+- 监控 Redis 缓存命中率
+
+---
+
+**版本**: v1.0  
+**最后更新**: 2025-01-17  
+**适用版本**: .NET 8 + EF Core 8 + PostgreSQL 16 + Redis 7.2

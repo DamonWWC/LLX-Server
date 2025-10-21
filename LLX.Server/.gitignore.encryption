@@ -1,0 +1,24 @@
+# 配置文件加密相关的 .gitignore 规则
+# 请将以下内容添加到项目根目录的 .gitignore 文件中
+
+# 配置文件备份（加密前的原始文件）
+*.backup.*
+
+# 临时加密密钥文件（如果有）
+*.encryption-key
+encryption-key.txt
+.encryption-key
+
+# 本地测试配置（包含明文密码）
+appsettings.Local.json
+appsettings.*.Local.json
+
+# 环境变量文件
+.env.local
+.env.*.local
+
+# 注意：
+# 1. appsettings.Production.json 应该提交（已加密）
+# 2. appsettings.Development.json 可以提交（开发环境配置）
+# 3. 加密密钥永远不要提交到版本控制
+

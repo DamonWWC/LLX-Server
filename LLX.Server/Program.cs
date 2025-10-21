@@ -1,44 +1,133 @@
-using System.Text.Json.Serialization;
+using DotNetEnv;
+using LLX.Server.Data;
+using LLX.Server.Extensions;
+using LLX.Server.Middleware;
+using LLX.Server.Services;
+using LLX.Server.Utils;
+using Microsoft.EntityFrameworkCore;
+using Serilog;
 
-namespace LLX.Server
+namespace LLX.Server;
+
+public class Program
 {
-    public class Program
+    public static async Task Main(string[] args)
     {
-        public static void Main(string[] args)
-        {
-            var builder = WebApplication.CreateSlimBuilder(args);
 
+        Env.Load();
+        // 配置 Serilog
+        Log.Logger = new LoggerConfiguration()
+            .ReadFrom.Configuration(new ConfigurationBuilder()
+                .AddJsonFile("appsettings.json")
+                .AddJsonFile($"appsettings.{Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") ?? "Production"}.json", optional: true)
+                .AddEnvironmentVariables()
+                .Build())
+            .Enrich.FromLogContext()
+            .CreateLogger();
+
+        try
+        {
+            Log.Information("Starting LLX.Server application");
+
+
+            if (args.Length > 0 && IsEncryptionToolCommand(args[0]))
+            {
+                await ConfigurationEncryptionTool.RunAsync(args);
+                return;
+            }
+
+            var builder = WebApplication.CreateBuilder(args);
+
+            // 使用 Serilog
+            builder.Host.UseSerilog();
+
+            // 配置 JSON 序列化
             builder.Services.ConfigureHttpJsonOptions(options =>
             {
-                options.SerializerOptions.TypeInfoResolverChain.Insert(0, AppJsonSerializerContext.Default);
+                options.SerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
+                options.SerializerOptions.WriteIndented = true;
+            });
+            builder.Services.AddSingleton<IConfigurationEncryptionService, ConfigurationEncryptionService>();
+            // 获取配置
+            var configuration = builder.Configuration;
+            // 注册服务
+            builder.Services
+                .AddDatabase(configuration)
+                .AddRedis(configuration)
+                .AddHealthChecks(configuration)
+                .AddSwagger();
+
+            // 添加 CORS
+            builder.Services.AddCors(options =>
+            {
+                options.AddPolicy("AllowAll", policy =>
+                {
+                    policy.AllowAnyOrigin()
+                          .AllowAnyMethod()
+                          .AllowAnyHeader();
+                });
             });
 
             var app = builder.Build();
 
-            var sampleTodos = new Todo[] {
-                new(1, "Walk the dog"),
-                new(2, "Do the dishes", DateOnly.FromDateTime(DateTime.Now)),
-                new(3, "Do the laundry", DateOnly.FromDateTime(DateTime.Now.AddDays(1))),
-                new(4, "Clean the bathroom"),
-                new(5, "Clean the car", DateOnly.FromDateTime(DateTime.Now.AddDays(2)))
-            };
+            // 配置中间件管道
+            app.UseSerilogRequestLogging();
 
-            var todosApi = app.MapGroup("/todos");
-            todosApi.MapGet("/", () => sampleTodos);
-            todosApi.MapGet("/{id}", (int id) =>
-                sampleTodos.FirstOrDefault(a => a.Id == id) is { } todo
-                    ? Results.Ok(todo)
-                    : Results.NotFound());
+            // 全局异常处理
+            app.UseMiddleware<ExceptionMiddleware>();
+
+            // 请求日志
+            app.UseMiddleware<LoggingMiddleware>();
+
+            // CORS
+            app.UseCors("AllowAll");
+
+            // Swagger（开发环境）
+            if (app.Environment.IsDevelopment())
+            {
+                app.UseSwagger();
+                app.UseSwaggerUI(c =>
+                {
+                    c.SwaggerEndpoint("/swagger/v1/swagger.json", "林龍香大米商城 API v1");
+                    c.RoutePrefix = "swagger";
+                });
+                app.MapSwagger();
+            }
+
+            // 健康检查
+            app.MapHealthChecks("/health");
+
+            // 根路径重定向到 Swagger
+            app.MapGet("/", () => Results.Redirect("/swagger"))
+                .ExcludeFromDescription();
+
+            // 数据库迁移（开发环境）
+            if (app.Environment.IsDevelopment())
+            {
+                using (var scope = app.Services.CreateScope())
+                {
+                    var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                    await dbContext.Database.MigrateAsync();
+                    Log.Information("Database migration completed");
+                }
+            }
+
+            Log.Information("Application configured successfully");
 
             app.Run();
         }
+        catch (Exception ex)
+        {
+            Log.Fatal(ex, "Application terminated unexpectedly");
+        }
+        finally
+        {
+            Log.CloseAndFlush();
+        }
     }
-
-    public record Todo(int Id, string? Title, DateOnly? DueBy = null, bool IsComplete = false);
-
-    [JsonSerializable(typeof(Todo[]))]
-    internal partial class AppJsonSerializerContext : JsonSerializerContext
+    private static bool IsEncryptionToolCommand(string command)
     {
-
+        var encryptionCommands = new[] { "encrypt", "decrypt", "encrypt-config", "generate-key" };
+        return encryptionCommands.Contains(command.ToLower());
     }
 }
