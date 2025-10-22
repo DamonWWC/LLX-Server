@@ -1,11 +1,12 @@
 using DotNetEnv;
 using LLX.Server.Data;
+using LLX.Server.Endpoints;
 using LLX.Server.Extensions;
+using LLX.Server.Logging;
 using LLX.Server.Middleware;
 using LLX.Server.Services;
 using LLX.Server.Utils;
 using Microsoft.EntityFrameworkCore;
-using Serilog;
 
 namespace LLX.Server;
 
@@ -15,19 +16,9 @@ public class Program
     {
 
         Env.Load();
-        // 配置 Serilog
-        Log.Logger = new LoggerConfiguration()
-            .ReadFrom.Configuration(new ConfigurationBuilder()
-                .AddJsonFile("appsettings.json")
-                .AddJsonFile($"appsettings.{Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") ?? "Production"}.json", optional: true)
-                .AddEnvironmentVariables()
-                .Build())
-            .Enrich.FromLogContext()
-            .CreateLogger();
 
         try
         {
-            Log.Information("Starting LLX.Server application");
 
 
             if (args.Length > 0 && IsEncryptionToolCommand(args[0]))
@@ -38,8 +29,11 @@ public class Program
 
             var builder = WebApplication.CreateBuilder(args);
 
-            // 使用 Serilog
-            builder.Host.UseSerilog();
+            // 配置日志系统
+            builder.Logging.ClearProviders();
+            builder.Logging.AddConsole();
+            builder.Logging.AddDebug();
+            builder.Logging.AddFileLogger(builder.Configuration);
 
             // 配置 JSON 序列化
             builder.Services.ConfigureHttpJsonOptions(options =>
@@ -52,10 +46,20 @@ public class Program
             var configuration = builder.Configuration;
             // 注册服务
             builder.Services
-                .AddDatabase(configuration)
-                .AddRedis(configuration)
-                .AddHealthChecks(configuration)
                 .AddSwagger();
+
+            // 只在有数据库连接字符串时注册核心服务
+            if (!string.IsNullOrEmpty(configuration.GetConnectionString("DefaultConnection")))
+            {
+                builder.Services
+                    .AddCoreServices(configuration)
+                    .AddHealthChecks(configuration);
+            }
+            else
+            {
+                // 开发模式：注册模拟服务
+                builder.Services.AddScoped<LLX.Server.Services.ICacheService, LLX.Server.Services.RedisCacheService>();
+            }
 
             // 添加 CORS
             builder.Services.AddCors(options =>
@@ -71,7 +75,6 @@ public class Program
             var app = builder.Build();
 
             // 配置中间件管道
-            app.UseSerilogRequestLogging();
 
             // 全局异常处理
             app.UseMiddleware<ExceptionMiddleware>();
@@ -97,6 +100,18 @@ public class Program
             // 健康检查
             app.MapHealthChecks("/health");
 
+            // 注册API端点
+            app.MapProductEndpoints();
+            app.MapAddressEndpoints();
+            app.MapOrderEndpoints();
+            app.MapShippingEndpoints();
+            
+            // 注册日志测试端点（仅开发环境）
+            if (app.Environment.IsDevelopment())
+            {
+                app.MapLoggingTestEndpoints();
+            }
+
             // 根路径重定向到 Swagger
             app.MapGet("/", () => Results.Redirect("/swagger"))
                 .ExcludeFromDescription();
@@ -108,21 +123,17 @@ public class Program
                 {
                     var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
                     await dbContext.Database.MigrateAsync();
-                    Log.Information("Database migration completed");
+                    Console.WriteLine("Database migration completed");
                 }
             }
 
-            Log.Information("Application configured successfully");
+            Console.WriteLine("Application configured successfully");
 
             app.Run();
         }
         catch (Exception ex)
         {
-            Log.Fatal(ex, "Application terminated unexpectedly");
-        }
-        finally
-        {
-            Log.CloseAndFlush();
+            Console.WriteLine($"Application terminated unexpectedly: {ex.Message}");
         }
     }
     private static bool IsEncryptionToolCommand(string command)

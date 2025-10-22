@@ -16,10 +16,9 @@ public static class ServiceCollectionExtensions
     /// 注册数据库服务
     /// </summary>
     /// <param name="services">服务集合</param>
-    /// <param name="connectionString">连接字符串</param>
-    /// <param name="provider">数据库提供程序</param>
+    /// <param name="configuration">配置</param>
     /// <returns>服务集合</returns>
-    public static IServiceCollection AddDatabase(this IServiceCollection services,IConfiguration configuration)
+    public static IServiceCollection AddDatabase(this IServiceCollection services, IConfiguration configuration)
     {
         var connectionEncryptString = configuration.GetConnectionString("DefaultConnection")
              ?? throw new InvalidOperationException("Database connection string not found");
@@ -103,26 +102,25 @@ public static class ServiceCollectionExtensions
     /// 注册 Redis 服务
     /// </summary>
     /// <param name="services">服务集合</param>
-    /// <param name="connectionString">连接字符串</param>
+    /// <param name="configuration">配置</param>
     /// <returns>服务集合</returns>
     public static IServiceCollection AddRedis(this IServiceCollection services, IConfiguration configuration)
     {
-     
         var connectionEncryptString = configuration.GetConnectionString("Redis")
             ?? throw new InvalidOperationException("Redis connection string not found");
+            
         services.AddSingleton<IConnectionMultiplexer>(provider =>
         {
-
             var encryptionService = provider.GetRequiredService<IConfigurationEncryptionService>();
             var connectionString = encryptionService.DecryptConnectionStringIfNeeded(connectionEncryptString);
 
-            var configuration = ConfigurationOptions.Parse(connectionString);
-            configuration.AbortOnConnectFail = false;
-            configuration.ConnectRetry = 3;
-            configuration.ConnectTimeout = 5000;
-            configuration.SyncTimeout = 5000;
+            var redisConfiguration = ConfigurationOptions.Parse(connectionString);
+            redisConfiguration.AbortOnConnectFail = false;
+            redisConfiguration.ConnectRetry = 3;
+            redisConfiguration.ConnectTimeout = 5000;
+            redisConfiguration.SyncTimeout = 5000;
             
-            return ConnectionMultiplexer.Connect(configuration);
+            return ConnectionMultiplexer.Connect(redisConfiguration);
         });
 
         services.AddScoped<ICacheService, RedisCacheService>();
@@ -131,17 +129,58 @@ public static class ServiceCollectionExtensions
     }
 
     /// <summary>
+    /// 注册仓储层服务
+    /// </summary>
+    /// <param name="services">服务集合</param>
+    /// <returns>服务集合</returns>
+    public static IServiceCollection AddRepositories(this IServiceCollection services)
+    {
+        services.AddScoped<Repositories.IProductRepository, Repositories.ProductRepository>();
+        services.AddScoped<Repositories.IAddressRepository, Repositories.AddressRepository>();
+        services.AddScoped<Repositories.IOrderRepository, Repositories.OrderRepository>();
+        services.AddScoped<Repositories.IShippingRepository, Repositories.ShippingRepository>();
+
+        return services;
+    }
+
+    /// <summary>
+    /// 注册业务服务层
+    /// </summary>
+    /// <param name="services">服务集合</param>
+    /// <returns>服务集合</returns>
+    public static IServiceCollection AddBusinessServices(this IServiceCollection services)
+    {
+        services.AddScoped<Services.IProductService, Services.ProductService>();
+        services.AddScoped<Services.IAddressService, Services.AddressService>();
+        services.AddScoped<Services.IOrderService, Services.OrderService>();
+        services.AddScoped<Services.IShippingService, Services.ShippingService>();
+
+        return services;
+    }
+
+    /// <summary>
+    /// 注册所有核心服务（数据库、Redis、仓储、业务服务）
+    /// </summary>
+    /// <param name="services">服务集合</param>
+    /// <param name="configuration">配置</param>
+    /// <returns>服务集合</returns>
+    public static IServiceCollection AddCoreServices(this IServiceCollection services, IConfiguration configuration)
+    {
+        return services
+            .AddDatabase(configuration)
+            .AddRedis(configuration)
+            .AddRepositories()
+            .AddBusinessServices();
+    }
+
+    /// <summary>
     /// 注册健康检查服务
     /// </summary>
     /// <param name="services">服务集合</param>
-    /// <param name="dbConnectionString">数据库连接字符串</param>
-    /// <param name="redisConnectionString">Redis 连接字符串</param>
-    /// <param name="provider">数据库提供程序</param>
+    /// <param name="configuration">配置</param>
     /// <returns>服务集合</returns>
-    public static IServiceCollection AddHealthChecks(this IServiceCollection services, 
-        IConfiguration configuration)
+    public static IServiceCollection AddHealthChecks(this IServiceCollection services, IConfiguration configuration)
     {
-
         var dbConnectionString = configuration.GetConnectionString("DefaultConnection")
                ?? throw new InvalidOperationException("Database connection string not found");
         var redisConnectionString = configuration.GetConnectionString("Redis")
@@ -149,9 +188,8 @@ public static class ServiceCollectionExtensions
 
         // 获取数据库配置
         var databaseProvider = configuration.GetValue<string>("Database:Provider") ?? "PostgreSQL";
-      
-        // 注册服务
         var provider = Enum.Parse<DatabaseProvider>(databaseProvider);
+        
         var healthChecks = services.AddHealthChecks();
 
         // 根据数据库类型添加相应的健康检查

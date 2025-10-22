@@ -38,12 +38,7 @@
     <PackageReference Include="StackExchange.Redis" Version="2.7.10" />
   </ItemGroup>
 
-  <!-- 日志 -->
-  <ItemGroup>
-    <PackageReference Include="Serilog.AspNetCore" Version="8.0.0" />
-    <PackageReference Include="Serilog.Sinks.Console" Version="5.0.1" />
-    <PackageReference Include="Serilog.Sinks.File" Version="5.0.0" />
-  </ItemGroup>
+  <!-- 日志 - 使用 .NET Core 内置日志 -->
 
   <!-- API 文档 -->
   <ItemGroup>

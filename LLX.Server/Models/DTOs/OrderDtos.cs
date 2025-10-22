@@ -72,6 +72,19 @@ public class UpdateOrderStatusDto
 }
 
 /// <summary>
+/// 订单计算 DTO
+/// </summary>
+public class OrderCalculationDto
+{
+    public decimal TotalRicePrice { get; set; }
+    public decimal TotalWeight { get; set; }
+    public decimal ShippingRate { get; set; }
+    public decimal TotalShipping { get; set; }
+    public decimal GrandTotal { get; set; }
+    public string Province { get; set; } = string.Empty;
+}
+
+/// <summary>
 /// 分页结果 DTO
 /// </summary>
 /// <typeparam name="T">数据类型</typeparam>

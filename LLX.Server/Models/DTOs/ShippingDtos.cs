@@ -20,7 +20,25 @@ public class ShippingCalculationDto
     public string Province { get; set; } = string.Empty;
     public decimal Weight { get; set; }
     public decimal Rate { get; set; }
-    public decimal Shipping { get; set; }
+    public decimal TotalShipping { get; set; }
+}
+
+/// <summary>
+/// 创建运费配置 DTO
+/// </summary>
+public class CreateShippingRateDto
+{
+    public string Province { get; set; } = string.Empty;
+    public decimal Rate { get; set; }
+}
+
+/// <summary>
+/// 更新运费配置 DTO
+/// </summary>
+public class UpdateShippingRateDto
+{
+    public string Province { get; set; } = string.Empty;
+    public decimal Rate { get; set; }
 }
 
 /// <summary>

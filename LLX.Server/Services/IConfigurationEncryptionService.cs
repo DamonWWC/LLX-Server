@@ -1,4 +1,4 @@
-﻿namespace LLX.Server.Services
+namespace LLX.Server.Services
 {
     /// <summary>
     /// 配置加密服务接口
