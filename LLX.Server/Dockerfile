@@ -40,7 +40,9 @@ RUN apt-get update && apt-get install -y \
 COPY --from=publish /app/publish .
 
 # 创建日志目录并设置权限
-RUN mkdir -p /app/logs && chown -R appuser:appuser /app
+RUN mkdir -p /app/logs && \
+    chown -R appuser:appuser /app && \
+    chmod -R 755 /app/logs
 
 # 切换到非root用户
 USER appuser
