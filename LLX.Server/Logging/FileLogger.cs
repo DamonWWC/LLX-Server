@@ -96,8 +96,8 @@ public sealed class FileLogger : ILogger, IDisposable
                 fileInfo.Directory.Create();
             }
 
-            // 创建或追加到文件
-            var stream = new FileStream(filePath, FileMode.Append, FileAccess.Write, FileShare.Read);
+            // 创建或追加到文件，允许多个进程同时读写
+            var stream = new FileStream(filePath, FileMode.Append, FileAccess.Write, FileShare.ReadWrite);
             return new StreamWriter(stream, Encoding.UTF8) { AutoFlush = true };
         });
     }
