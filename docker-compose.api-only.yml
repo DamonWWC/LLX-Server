@@ -1,0 +1,85 @@
+version: "3.8"
+
+# 仅API服务部署配置
+# 使用此配置文件时，需要确保PostgreSQL和Redis已经在运行
+
+services:
+  # .NET API 服务
+  api:
+    build:
+      context: .
+      dockerfile: LLX.Server/Dockerfile
+    image: llxrice/api:latest
+    container_name: llxrice_api
+    restart: unless-stopped
+    environment:
+      # 应用环境配置
+      - ASPNETCORE_ENVIRONMENT=${ASPNETCORE_ENVIRONMENT:-Production}
+      - ASPNETCORE_URLS=http://+:8080
+
+      # 数据库连接配置（使用外部数据库）
+      - ConnectionStrings__DefaultConnection=${DB_CONNECTION_STRING}
+
+      # Redis连接配置（使用外部Redis）
+      - ConnectionStrings__Redis=${REDIS_CONNECTION_STRING}
+
+      # 数据库提供商
+      - Database__Provider=${DB_PROVIDER:-PostgreSQL}
+
+      # 数据库连接池配置
+      - Database__ConnectionPool__MinPoolSize=${DB_MIN_POOL_SIZE:-5}
+      - Database__ConnectionPool__MaxPoolSize=${DB_MAX_POOL_SIZE:-100}
+      - Database__ConnectionPool__ConnectionLifetime=${DB_CONNECTION_LIFETIME:-300}
+      - Database__ConnectionPool__CommandTimeout=${DB_COMMAND_TIMEOUT:-30}
+      - Database__ConnectionPool__EnableRetryOnFailure=${DB_ENABLE_RETRY:-true}
+      - Database__ConnectionPool__MaxRetryCount=${DB_MAX_RETRY_COUNT:-3}
+
+      # 性能配置
+      - Performance__SlowRequestThreshold=${PERFORMANCE_SLOW_REQUEST_THRESHOLD:-1000}
+
+      # 时区配置
+      - TZ=Asia/Shanghai
+
+      # 日志配置
+      - Logging__LogLevel__Default=${LOG_LEVEL:-Information}
+
+    ports:
+      - "${API_PORT:-8080}:8080"
+
+    volumes:
+      # 日志文件挂载到宿主机
+      - ./logs:/app/logs
+
+      # 配置文件挂载（可选）
+      # - ./LLX.Server/appsettings.Production.json:/app/appsettings.Production.json:ro
+
+    # 健康检查
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+    # 日志配置
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+    # 资源限制
+    deploy:
+      resources:
+        limits:
+          memory: ${CONTAINER_MEMORY_LIMIT:-512M}
+          cpus: "${CONTAINER_CPU_LIMIT:-0.5}"
+        reservations:
+          memory: ${CONTAINER_MEMORY_RESERVATION:-256M}
+          cpus: "${CONTAINER_CPU_RESERVATION:-0.25}"
+# 网络配置（可选）
+# 如果需要连接到外部网络，可以配置
+# networks:
+#   default:
+#     external:
+#       name: your_existing_network
