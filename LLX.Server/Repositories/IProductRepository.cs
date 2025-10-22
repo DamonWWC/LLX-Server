@@ -1,4 +1,5 @@
 using LLX.Server.Models.Entities;
+using Microsoft.EntityFrameworkCore;
 
 namespace LLX.Server.Repositories;
 
@@ -62,4 +63,10 @@ public interface IProductRepository
     /// <param name="quantity">库存数量</param>
     /// <returns>是否更新成功</returns>
     Task<bool> UpdateQuantityAsync(int id, int quantity);
+
+    /// <summary>
+    /// 获取可查询的商品集合
+    /// </summary>
+    /// <returns>可查询的商品集合</returns>
+    IQueryable<Product> GetQueryable();
 }

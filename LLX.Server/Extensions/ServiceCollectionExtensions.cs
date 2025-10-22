@@ -1,5 +1,6 @@
 using LLX.Server.Data;
 using LLX.Server.Services;
+using LLX.Server.Utils;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
@@ -43,6 +44,10 @@ public static class ServiceCollectionExtensions
                             maxRetryCount: 3,
                             maxRetryDelay: TimeSpan.FromSeconds(30),
                             errorCodesToAdd: null);
+                        
+                        // 性能优化配置
+                        npgsqlOptions.CommandTimeout(30);
+                        npgsqlOptions.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery);
                     });
                     break;
 
@@ -73,7 +78,20 @@ public static class ServiceCollectionExtensions
                 default:
                     throw new NotSupportedException($"Database provider {provider} is not supported.");
             }
+
+            // 查询优化
+            options.UseQueryTrackingBehavior(QueryTrackingBehavior.NoTracking);
+            
+            // 开发环境配置
+            if (configuration.GetValue<string>("ASPNETCORE_ENVIRONMENT") == "Development")
+            {
+                options.EnableSensitiveDataLogging(false);
+                options.EnableDetailedErrors(false);
+            }
         });
+
+        // 注册连接池监控服务
+        services.AddSingleton<IConnectionPoolMonitor, ConnectionPoolMonitor>();
 
         return services;
     }

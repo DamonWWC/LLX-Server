@@ -76,6 +76,9 @@ public class Program
 
             // 配置中间件管道
 
+            // 性能监控（最先执行）
+            app.UsePerformanceMonitoring();
+
             // 全局异常处理
             app.UseMiddleware<ExceptionMiddleware>();
 

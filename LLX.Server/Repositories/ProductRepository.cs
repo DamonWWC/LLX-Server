@@ -124,4 +124,13 @@ public class ProductRepository : IProductRepository
         await _context.SaveChangesAsync();
         return true;
     }
+
+    /// <summary>
+    /// 获取可查询的商品集合
+    /// </summary>
+    /// <returns>可查询的商品集合</returns>
+    public IQueryable<Product> GetQueryable()
+    {
+        return _context.Products.AsQueryable();
+    }
 }

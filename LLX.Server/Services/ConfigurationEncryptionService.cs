@@ -108,7 +108,7 @@ namespace LLX.Server.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, $"解密字符串时发生错误: {encryptedText},EncryptionKey:{_encryptionKey}", encryptedText);
-                return null;
+                return string.Empty;
                 //throw new InvalidOperationException("解密失败，可能是密钥错误或数据损坏", ex);
             }
         }

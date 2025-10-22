@@ -1,5 +1,6 @@
 using LLX.Server.Models.DTOs;
 using LLX.Server.Models.Entities;
+using LLX.Server.Utils;
 
 namespace LLX.Server.Services;
 
@@ -57,4 +58,20 @@ public interface IProductService
     /// <param name="quantity">库存数量</param>
     /// <returns>操作响应</returns>
     Task<ApiResponse<bool>> UpdateProductQuantityAsync(int id, int quantity);
+
+    /// <summary>
+    /// 分页获取商品列表
+    /// </summary>
+    /// <param name="pageNumber">页码</param>
+    /// <param name="pageSize">页大小</param>
+    /// <param name="sortBy">排序字段</param>
+    /// <param name="sortDescending">是否降序</param>
+    /// <param name="searchTerm">搜索词</param>
+    /// <returns>分页商品列表响应</returns>
+    Task<ApiResponse<QueryOptimizer.PagedResult<ProductDto>>> GetProductsPagedAsync(
+        int pageNumber = 1,
+        int pageSize = 20,
+        string? sortBy = null,
+        bool sortDescending = false,
+        string? searchTerm = null);
 }

@@ -1,6 +1,7 @@
 using LLX.Server.Models.DTOs;
 using LLX.Server.Models.Entities;
 using LLX.Server.Repositories;
+using LLX.Server.Utils;
 
 namespace LLX.Server.Services;
 
@@ -13,8 +14,7 @@ public class ProductService : IProductService
     private readonly ICacheService _cacheService;
     private readonly ILogger<ProductService> _logger;
 
-    private const string CACHE_KEY_PREFIX = "product:";
-    private const string CACHE_KEY_ALL = "product:all";
+    // 使用新的缓存策略
     private readonly TimeSpan _cacheExpiry = TimeSpan.FromMinutes(30);
 
     public ProductService(
@@ -37,22 +37,24 @@ public class ProductService : IProductService
         {
             _logger.LogInformation("Getting all products");
 
-            // 尝试从缓存获取
-            var cachedProducts = await _cacheService.GetAsync<IEnumerable<ProductDto>>(CACHE_KEY_ALL);
-            if (cachedProducts != null)
+            // 使用GetOrSetAsync防缓存穿透和击穿
+            var productDtos = await _cacheService.GetOrSetAsync(
+                CacheStrategy.Keys.ProductAll,
+                async () =>
+                {
+                    var products = await _productRepository.GetAllAsync();
+                    return products.Select(MapToDto).ToList();
+                },
+                CacheStrategy.GetRandomExpiry(CacheStrategy.Expiry.ProductAll)
+            );
+
+            if (productDtos == null)
             {
-                _logger.LogInformation("Retrieved {Count} products from cache", cachedProducts.Count());
-                return ApiResponse<IEnumerable<ProductDto>>.SuccessResponse(cachedProducts, "获取商品列表成功");
+                _logger.LogWarning("Failed to retrieve products");
+                return ApiResponse<IEnumerable<ProductDto>>.ErrorResponse("获取商品列表失败");
             }
 
-            // 从数据库获取
-            var products = await _productRepository.GetAllAsync();
-            var productDtos = products.Select(MapToDto).ToList();
-
-            // 缓存结果
-            await _cacheService.SetAsync(CACHE_KEY_ALL, productDtos, _cacheExpiry);
-
-            _logger.LogInformation("Retrieved {Count} products from database", productDtos.Count);
+            _logger.LogInformation("Retrieved {Count} products", productDtos.Count());
             return ApiResponse<IEnumerable<ProductDto>>.SuccessResponse(productDtos, "获取商品列表成功");
         }
         catch (Exception ex)
@@ -73,29 +75,25 @@ public class ProductService : IProductService
         {
             _logger.LogInformation("Getting product by ID: {ProductId}", id);
 
-            // 尝试从缓存获取
-            var cacheKey = $"{CACHE_KEY_PREFIX}{id}";
-            var cachedProduct = await _cacheService.GetAsync<ProductDto>(cacheKey);
-            if (cachedProduct != null)
-            {
-                _logger.LogInformation("Retrieved product {ProductId} from cache", id);
-                return ApiResponse<ProductDto?>.SuccessResponse(cachedProduct, "获取商品成功");
-            }
+            // 使用GetOrSetAsync防缓存穿透和击穿
+            var cacheKey = CacheStrategy.GenerateKey(CacheStrategy.Keys.Product, id.ToString());
+            var productDto = await _cacheService.GetOrSetAsync(
+                cacheKey,
+                async () =>
+                {
+                    var product = await _productRepository.GetByIdAsync(id);
+                    return product != null ? MapToDto(product) : null;
+                },
+                CacheStrategy.GetRandomExpiry(CacheStrategy.Expiry.ProductSingle)
+            );
 
-            // 从数据库获取
-            var product = await _productRepository.GetByIdAsync(id);
-            if (product == null)
+            if (productDto == null)
             {
                 _logger.LogWarning("Product {ProductId} not found", id);
                 return ApiResponse<ProductDto?>.ErrorResponse("商品不存在");
             }
 
-            var productDto = MapToDto(product);
-
-            // 缓存结果
-            await _cacheService.SetAsync(cacheKey, productDto, _cacheExpiry);
-
-            _logger.LogInformation("Retrieved product {ProductId} from database", id);
+            _logger.LogInformation("Retrieved product {ProductId}", id);
             return ApiResponse<ProductDto?>.SuccessResponse(productDto, "获取商品成功");
         }
         catch (Exception ex)
@@ -121,10 +119,24 @@ public class ProductService : IProductService
                 return ApiResponse<IEnumerable<ProductDto>>.ErrorResponse("搜索关键词不能为空");
             }
 
-            var products = await _productRepository.SearchByNameAsync(name);
-            var productDtos = products.Select(MapToDto).ToList();
+            // 使用GetOrSetAsync防缓存穿透和击穿
+            var cacheKey = CacheStrategy.GenerateSearchKey(name);
+            var productDtos = await _cacheService.GetOrSetAsync(
+                cacheKey,
+                async () =>
+                {
+                    var products = await _productRepository.SearchByNameAsync(name);
+                    return products.Select(MapToDto).ToList();
+                },
+                CacheStrategy.GetRandomExpiry(CacheStrategy.Expiry.ProductSearch)
+            );
 
-            _logger.LogInformation("Found {Count} products matching '{ProductName}'", productDtos.Count, name);
+            if (productDtos == null)
+            {
+                productDtos = new List<ProductDto>();
+            }
+
+            _logger.LogInformation("Found {Count} products matching '{ProductName}'", productDtos.Count(), name);
             return ApiResponse<IEnumerable<ProductDto>>.SuccessResponse(productDtos, "搜索商品成功");
         }
         catch (Exception ex)
@@ -166,7 +178,7 @@ public class ProductService : IProductService
             var productDto = MapToDto(createdProduct);
 
             // 清除相关缓存
-            await _cacheService.RemoveAsync(CACHE_KEY_ALL);
+            await InvalidateProductCacheAsync();
 
             _logger.LogInformation("Created product {ProductId}: {ProductName}", createdProduct.Id, createdProduct.Name);
             return ApiResponse<ProductDto>.SuccessResponse(productDto, "创建商品成功");
@@ -217,8 +229,7 @@ public class ProductService : IProductService
             var productDto = MapToDto(updatedProduct);
 
             // 清除相关缓存
-            await _cacheService.RemoveAsync(CACHE_KEY_ALL);
-            await _cacheService.RemoveAsync($"{CACHE_KEY_PREFIX}{id}");
+            await InvalidateProductCacheAsync(id);
 
             _logger.LogInformation("Updated product {ProductId}: {ProductName}", updatedProduct.Id, updatedProduct.Name);
             return ApiResponse<ProductDto>.SuccessResponse(productDto, "更新商品成功");
@@ -249,8 +260,7 @@ public class ProductService : IProductService
             }
 
             // 清除相关缓存
-            await _cacheService.RemoveAsync(CACHE_KEY_ALL);
-            await _cacheService.RemoveAsync($"{CACHE_KEY_PREFIX}{id}");
+            await InvalidateProductCacheAsync(id);
 
             _logger.LogInformation("Deleted product {ProductId}", id);
             return ApiResponse<bool>.SuccessResponse(true, "删除商品成功");
@@ -287,8 +297,7 @@ public class ProductService : IProductService
             }
 
             // 清除相关缓存
-            await _cacheService.RemoveAsync(CACHE_KEY_ALL);
-            await _cacheService.RemoveAsync($"{CACHE_KEY_PREFIX}{id}");
+            await InvalidateProductCacheAsync(id);
 
             _logger.LogInformation("Updated product {ProductId} quantity to {Quantity}", id, quantity);
             return ApiResponse<bool>.SuccessResponse(true, "更新库存成功");
@@ -297,6 +306,113 @@ public class ProductService : IProductService
         {
             _logger.LogError(ex, "Error updating product {ProductId} quantity", id);
             return ApiResponse<bool>.ErrorResponse("更新库存失败", new List<string> { ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// 分页获取商品列表
+    /// </summary>
+    /// <param name="pageNumber">页码</param>
+    /// <param name="pageSize">页大小</param>
+    /// <param name="sortBy">排序字段</param>
+    /// <param name="sortDescending">是否降序</param>
+    /// <param name="searchTerm">搜索词</param>
+    /// <returns>分页商品列表响应</returns>
+    public async Task<ApiResponse<QueryOptimizer.PagedResult<ProductDto>>> GetProductsPagedAsync(
+        int pageNumber = 1,
+        int pageSize = 20,
+        string? sortBy = null,
+        bool sortDescending = false,
+        string? searchTerm = null)
+    {
+        try
+        {
+            _logger.LogInformation("Getting paged products: Page={PageNumber}, Size={PageSize}, Sort={SortBy}, Search={SearchTerm}", 
+                pageNumber, pageSize, sortBy, searchTerm);
+
+            // 使用GetOrSetAsync防缓存穿透和击穿
+            var cacheKey = $"product:paged:{pageNumber}:{pageSize}:{sortBy}:{sortDescending}:{searchTerm}";
+            var pagedResult = await _cacheService.GetOrSetAsync(
+                cacheKey,
+                async () =>
+                {
+                    var query = _productRepository.GetQueryable();
+                    
+                    // 应用搜索过滤
+                    if (!string.IsNullOrWhiteSpace(searchTerm))
+                    {
+                        query = query.ApplySearch(searchTerm, p => p.Name, p => p.Unit);
+                    }
+                    
+                    // 优化查询（只读）
+                    query = query.OptimizeForRead(true);
+                    
+                    // 执行分页查询
+                    return await query.ToPagedResultAsync(pageNumber, pageSize, sortBy, sortDescending);
+                },
+                CacheStrategy.GetRandomExpiry(TimeSpan.FromMinutes(10))
+            );
+
+            if (pagedResult == null)
+            {
+                _logger.LogWarning("Failed to retrieve paged products");
+                return ApiResponse<QueryOptimizer.PagedResult<ProductDto>>.ErrorResponse("获取商品列表失败");
+            }
+
+            // 转换为DTO
+            var productDtos = pagedResult.Items.Select(MapToDto).ToList();
+            var result = new QueryOptimizer.PagedResult<ProductDto>
+            {
+                Items = productDtos,
+                TotalCount = pagedResult.TotalCount,
+                PageNumber = pagedResult.PageNumber,
+                PageSize = pagedResult.PageSize
+            };
+
+            _logger.LogInformation("Retrieved {Count} products (page {PageNumber} of {TotalPages})", 
+                productDtos.Count, result.PageNumber, result.TotalPages);
+            
+            return ApiResponse<QueryOptimizer.PagedResult<ProductDto>>.SuccessResponse(result, "获取商品列表成功");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting paged products");
+            return ApiResponse<QueryOptimizer.PagedResult<ProductDto>>.ErrorResponse("获取商品列表失败", new List<string> { ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// 清除商品相关缓存
+    /// </summary>
+    /// <param name="productId">商品ID（可选）</param>
+    /// <returns>任务</returns>
+    private async Task InvalidateProductCacheAsync(int? productId = null)
+    {
+        try
+        {
+            // 清除所有商品列表缓存
+            await _cacheService.RemoveAsync(CacheStrategy.Keys.ProductAll);
+            
+            // 清除搜索缓存
+            await _cacheService.RemoveByPatternAsync(CacheStrategy.Keys.ProductSearch + "*");
+            
+            // 如果指定了商品ID，清除单个商品缓存
+            if (productId.HasValue)
+            {
+                var productKey = CacheStrategy.GenerateKey(CacheStrategy.Keys.Product, productId.Value.ToString());
+                await _cacheService.RemoveAsync(productKey);
+            }
+            else
+            {
+                // 清除所有商品缓存
+                await _cacheService.RemoveByPatternAsync(CacheStrategy.Patterns.ProductAll);
+            }
+            
+            _logger.LogInformation("Invalidated product cache for product {ProductId}", productId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to invalidate product cache for product {ProductId}", productId);
         }
     }
 

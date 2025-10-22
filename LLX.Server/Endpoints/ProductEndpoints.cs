@@ -1,5 +1,6 @@
 using LLX.Server.Models.DTOs;
 using LLX.Server.Services;
+using LLX.Server.Utils;
 using Microsoft.AspNetCore.Mvc;
 
 namespace LLX.Server.Endpoints;
@@ -39,6 +40,13 @@ public static class ProductEndpoints
             .WithSummary("搜索商品")
             .WithDescription("根据商品名称搜索商品")
             .Produces<ApiResponse<IEnumerable<ProductDto>>>(200);
+
+        // 分页获取商品
+        group.MapGet("/paged", GetProductsPaged)
+            .WithName("GetProductsPaged")
+            .WithSummary("分页获取商品")
+            .WithDescription("分页获取商品列表，支持排序和搜索")
+            .Produces<ApiResponse<QueryOptimizer.PagedResult<ProductDto>>>(200);
 
         // 创建商品
         group.MapPost("/", CreateProduct)
@@ -173,6 +181,40 @@ public static class ProductEndpoints
         {
             return result.Data == false ? Results.NotFound(result) : Results.BadRequest(result);
         }
+        return Results.Ok(result);
+    }
+
+    /// <summary>
+    /// 分页获取商品
+    /// </summary>
+    /// <param name="pageNumber">页码</param>
+    /// <param name="pageSize">页大小</param>
+    /// <param name="sortBy">排序字段</param>
+    /// <param name="sortDescending">是否降序</param>
+    /// <param name="searchTerm">搜索词</param>
+    /// <param name="productService">商品服务</param>
+    /// <returns>分页结果</returns>
+    private static async Task<IResult> GetProductsPaged(
+        [FromQuery] int pageNumber = 1,
+        [FromQuery] int pageSize = 20,
+        [FromQuery] string? sortBy = null,
+        [FromQuery] bool sortDescending = false,
+        [FromQuery] string? searchTerm = null,
+        IProductService? productService = null)
+    {
+        if (productService == null)
+        {
+            return Results.Problem("Product service not available");
+        }
+
+        var result = await productService.GetProductsPagedAsync(
+            pageNumber, pageSize, sortBy, sortDescending, searchTerm);
+
+        if (!result.Success)
+        {
+            return Results.BadRequest(result);
+        }
+
         return Results.Ok(result);
     }
 }

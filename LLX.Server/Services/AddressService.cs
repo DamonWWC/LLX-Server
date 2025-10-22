@@ -360,7 +360,7 @@ public class AddressService : IAddressService
     /// </summary>
     /// <param name="fullAddress">完整地址字符串</param>
     /// <returns>解析后的地址响应</returns>
-    public async Task<ApiResponse<ParsedAddressDto>> ParseAddressAsync(string fullAddress)
+    public Task<ApiResponse<ParsedAddressDto>> ParseAddressAsync(string fullAddress)
     {
         try
         {
@@ -368,7 +368,7 @@ public class AddressService : IAddressService
 
             if (string.IsNullOrWhiteSpace(fullAddress))
             {
-                return ApiResponse<ParsedAddressDto>.ErrorResponse("地址文本不能为空");
+                return Task.FromResult(ApiResponse<ParsedAddressDto>.ErrorResponse("地址文本不能为空"));
             }
 
             var parsedAddress = AddressParser.Parse(fullAddress);
@@ -376,12 +376,12 @@ public class AddressService : IAddressService
             _logger.LogInformation("Successfully parsed address: {Province} {City} {District}", 
                 parsedAddress.Province, parsedAddress.City, parsedAddress.District);
 
-            return ApiResponse<ParsedAddressDto>.SuccessResponse(parsedAddress, "地址解析成功");
+            return Task.FromResult(ApiResponse<ParsedAddressDto>.SuccessResponse(parsedAddress, "地址解析成功"));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error parsing address: {FullAddress}", fullAddress);
-            return ApiResponse<ParsedAddressDto>.ErrorResponse("地址解析失败", new List<string> { ex.Message });
+            return Task.FromResult(ApiResponse<ParsedAddressDto>.ErrorResponse("地址解析失败", new List<string> { ex.Message }));
         }
     }
 

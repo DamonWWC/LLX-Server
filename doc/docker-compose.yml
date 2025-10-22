@@ -64,15 +64,23 @@ services:
   api:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: LLX.Server/Dockerfile
     image: llxrice/api:latest
     container_name: llxrice_api
     restart: unless-stopped
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
       - ASPNETCORE_URLS=http://+:8080
-      - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=llxrice;Username=llxrice_user;Password=${DB_PASSWORD:-your_strong_password};Pooling=true;Minimum Pool Size=5;Maximum Pool Size=100
+      - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=llxrice;Username=llxrice_user;Password=${DB_PASSWORD:-your_strong_password};Pooling=true;Minimum Pool Size=5;Maximum Pool Size=100;Command Timeout=30
       - ConnectionStrings__Redis=redis:6379,password=${REDIS_PASSWORD:-your_redis_password},ssl=false,abortConnect=false
+      - Database__Provider=PostgreSQL
+      - Database__ConnectionPool__MinPoolSize=5
+      - Database__ConnectionPool__MaxPoolSize=100
+      - Database__ConnectionPool__ConnectionLifetime=300
+      - Database__ConnectionPool__CommandTimeout=30
+      - Database__ConnectionPool__EnableRetryOnFailure=true
+      - Database__ConnectionPool__MaxRetryCount=3
+      - Performance__SlowRequestThreshold=1000
       - TZ=Asia/Shanghai
     ports:
       - "8080:8080"
@@ -85,6 +93,7 @@ services:
       - llxrice_network
     volumes:
       - ./logs:/app/logs
+      - ./LLX.Server/appsettings.Production.json:/app/appsettings.Production.json:ro
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 30s
@@ -96,6 +105,14 @@ services:
       options:
         max-size: "50m"
         max-file: "5"
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "0.5"
+        reservations:
+          memory: 256M
+          cpus: "0.25"
 
   # Nginx 反向代理（可选）
   # nginx:
