@@ -74,12 +74,20 @@ function Test-EnvironmentFile {
     $envFile = ".env"
     if (-not (Test-Path $envFile)) {
         Write-ColorOutput "⚠ 环境变量文件 .env 不存在" "Yellow"
-        Write-ColorOutput "请复制 doc/env.example 为 .env 并配置相应的值" "Yellow"
+        Write-ColorOutput "请复制 env.example 为 .env 并配置相应的值" "Yellow"
         
         $copy = Read-Host "是否现在复制示例文件? (y/n)"
         if ($copy -eq "y" -or $copy -eq "Y") {
-            Copy-Item "doc/env.example" ".env"
-            Write-ColorOutput "✓ 已复制环境变量示例文件" "Green"
+            if (Test-Path "env.example") {
+                Copy-Item "env.example" ".env"
+                Write-ColorOutput "✓ 已复制环境变量示例文件" "Green"
+            } elseif (Test-Path "doc/env.example") {
+                Copy-Item "doc/env.example" ".env"
+                Write-ColorOutput "✓ 已复制环境变量示例文件" "Green"
+            } else {
+                Write-ColorOutput "✗ 找不到环境变量示例文件" "Red"
+                exit 1
+            }
             Write-ColorOutput "请编辑 .env 文件配置相应的值" "Yellow"
             exit 0
         } else {

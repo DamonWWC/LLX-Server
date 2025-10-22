@@ -108,13 +108,21 @@ check_docker_compose() {
 check_environment_file() {
     if [ ! -f ".env" ]; then
         print_color "yellow" "⚠ 环境变量文件 .env 不存在"
-        print_color "yellow" "请复制 doc/env.example 为 .env 并配置相应的值"
+        print_color "yellow" "请复制 env.example 为 .env 并配置相应的值"
         
         read -p "是否现在复制示例文件? (y/n): " -n 1 -r
         echo
         if [[ $REPLY =~ ^[Yy]$ ]]; then
-            cp doc/env.example .env
-            print_color "green" "✓ 已复制环境变量示例文件"
+            if [ -f "env.example" ]; then
+                cp env.example .env
+                print_color "green" "✓ 已复制环境变量示例文件"
+            elif [ -f "doc/env.example" ]; then
+                cp doc/env.example .env
+                print_color "green" "✓ 已复制环境变量示例文件"
+            else
+                print_color "red" "✗ 找不到环境变量示例文件"
+                exit 1
+            fi
             print_color "yellow" "请编辑 .env 文件配置相应的值"
             exit 0
         else
