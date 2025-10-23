@@ -19,8 +19,6 @@ public class Program
 
         try
         {
-
-
             if (args.Length > 0 && IsEncryptionToolCommand(args[0]))
             {
                 await ConfigurationEncryptionTool.RunAsync(args);
@@ -43,7 +41,7 @@ public class Program
             });
             builder.Services.AddSingleton<IConfigurationEncryptionService, ConfigurationEncryptionService>();
             // 获取配置
-            var configuration = builder.Configuration;
+            var configuration = builder.Configuration;          
             // 注册服务
             builder.Services
                 .AddSwagger();
