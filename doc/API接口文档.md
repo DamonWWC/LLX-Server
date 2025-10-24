@@ -942,17 +942,21 @@ GET /api/products/paged?pageNumber=1&pageSize=10&sortBy=name&sortDescending=fals
       "productId": 2,
       "quantity": 1
     }
-  ]
+  ],
+  "paymentStatus": "未付款",
+  "status": "待发货"
 }
 ```
 
 **请求体字段说明**:
-| 字段 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| addressId | integer | 是 | 收货地址ID |
-| items | array | 是 | 订单商品列表 |
-| items[].productId | integer | 是 | 商品ID |
-| items[].quantity | integer | 是 | 商品数量 |
+| 字段 | 类型 | 必填 | 默认值 | 说明 |
+|------|------|------|--------|------|
+| addressId | integer | 是 | - | 收货地址ID |
+| items | array | 是 | - | 订单商品列表 |
+| items[].productId | integer | 是 | - | 商品ID |
+| items[].quantity | integer | 是 | - | 商品数量 |
+| paymentStatus | string | 否 | "未付款" | 支付状态 |
+| status | string | 否 | "待发货" | 订单状态 |
 
 **响应示例**:
 ```json
@@ -1464,6 +1468,29 @@ GET /api/products/paged?pageNumber=1&pageSize=10&sortBy=name&sortDescending=fals
 }
 ```
 
+## 📊 订单状态说明
+
+### 支付状态 (PaymentStatus)
+| 状态值 | 说明 |
+|--------|------|
+| 未付款 | 订单创建后默认状态 |
+| 已付款 | 支付完成 |
+| 部分付款 | 部分支付 |
+| 已退款 | 已退款 |
+| 退款中 | 退款处理中 |
+
+### 订单状态 (Status)
+| 状态值 | 说明 |
+|--------|------|
+| 待发货 | 订单创建后默认状态 |
+| 已发货 | 商品已发出 |
+| 运输中 | 商品运输中 |
+| 已送达 | 商品已送达 |
+| 已完成 | 订单完成 |
+| 已取消 | 订单已取消 |
+| 退货中 | 退货处理中 |
+| 已退货 | 退货完成 |
+
 ## 📊 错误码说明
 
 ### HTTP 状态码
@@ -1484,9 +1511,11 @@ GET /api/products/paged?pageNumber=1&pageSize=10&sortBy=name&sortDescending=fals
 | ADDRESS_NOT_FOUND | 地址不存在 |
 | ORDER_NOT_FOUND | 订单不存在 |
 | SHIPPING_RATE_NOT_FOUND | 运费配置不存在 |
-| INSUFFICIENT_STOCK | 库存不足 |
+| ~~INSUFFICIENT_STOCK~~ | ~~库存不足~~ (已移除) |
 | INVALID_QUANTITY | 数量无效 |
 | INVALID_ADDRESS | 地址格式无效 |
+| INVALID_PAYMENT_STATUS | 支付状态无效 |
+| INVALID_ORDER_STATUS | 订单状态无效 |
 
 ## 🧪 测试工具
 

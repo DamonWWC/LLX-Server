@@ -52,6 +52,8 @@ public class CreateOrderDto
 {
     public int AddressId { get; set; }
     public List<CreateOrderItemDto> Items { get; set; } = new();
+    public string PaymentStatus { get; set; } = "未付款";
+    public string Status { get; set; } = "待发货";
 }
 
 /// <summary>

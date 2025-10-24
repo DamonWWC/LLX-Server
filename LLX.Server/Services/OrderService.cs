@@ -12,6 +12,7 @@ namespace LLX.Server.Services;
 public class OrderService : IOrderService
 {
     private readonly IOrderRepository _orderRepository;
+    private readonly IOrderItemRepository _orderItemRepository;
     private readonly IProductRepository _productRepository;
     private readonly IAddressRepository _addressRepository;
     private readonly IShippingService _shippingService;
@@ -24,6 +25,7 @@ public class OrderService : IOrderService
 
     public OrderService(
         IOrderRepository orderRepository,
+        IOrderItemRepository orderItemRepository,
         IProductRepository productRepository,
         IAddressRepository addressRepository,
         IShippingService shippingService,
@@ -31,6 +33,7 @@ public class OrderService : IOrderService
         ILogger<OrderService> logger)
     {
         _orderRepository = orderRepository;
+        _orderItemRepository = orderItemRepository;
         _productRepository = productRepository;
         _addressRepository = addressRepository;
         _shippingService = shippingService;
@@ -251,13 +254,14 @@ public class OrderService : IOrderService
                 ShippingRate = calculation.ShippingRate,
                 TotalShipping = calculation.TotalShipping,
                 GrandTotal = calculation.GrandTotal,
-                PaymentStatus = "未付款",
-                Status = "待发货"
+                PaymentStatus = createDto.PaymentStatus,
+                Status = createDto.Status
             };
 
             var createdOrder = await _orderRepository.AddAsync(order);
 
             // 创建订单明细
+            var orderItems = new List<OrderItem>();
             foreach (var item in createDto.Items)
             {
                 var product = await _productRepository.GetByIdAsync(item.ProductId);
@@ -275,8 +279,14 @@ public class OrderService : IOrderService
                     Subtotal = product.Price * item.Quantity
                 };
 
-                // 这里需要添加订单明细到数据库，暂时跳过
-                // 实际实现中需要创建 OrderItemRepository
+                orderItems.Add(orderItem);
+            }
+
+            // 批量添加订单明细到数据库
+            if (orderItems.Any())
+            {
+                await _orderItemRepository.AddRangeAsync(orderItems);
+                _logger.LogInformation("Created {Count} order items for order {OrderId}", orderItems.Count, createdOrder.Id);
             }
 
             var orderDto = MapToDto(createdOrder);
@@ -438,10 +448,11 @@ public class OrderService : IOrderService
                     return ApiResponse<OrderCalculationDto>.ErrorResponse($"商品ID {item.ProductId} 不存在");
                 }
 
-                if (product.Quantity < item.Quantity)
-                {
-                    return ApiResponse<OrderCalculationDto>.ErrorResponse($"商品 {product.Name} 库存不足");
-                }
+                // 移除库存验证，默认商品有无限库存
+                // if (product.Quantity < item.Quantity)
+                // {
+                //     return ApiResponse<OrderCalculationDto>.ErrorResponse($"商品 {product.Name} 库存不足");
+                // }
 
                 totalRicePrice += product.Price * item.Quantity;
                 totalWeight += product.Weight * item.Quantity;
@@ -542,6 +553,12 @@ public class OrderService : IOrderService
 
         if (createDto.Items == null || !createDto.Items.Any())
             errors.Add("订单明细不能为空");
+
+        if (string.IsNullOrWhiteSpace(createDto.PaymentStatus))
+            errors.Add("支付状态不能为空");
+
+        if (string.IsNullOrWhiteSpace(createDto.Status))
+            errors.Add("订单状态不能为空");
 
         if (createDto.Items != null)
         {

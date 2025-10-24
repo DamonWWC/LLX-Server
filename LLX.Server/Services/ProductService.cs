@@ -284,10 +284,11 @@ public class ProductService : IProductService
         {
             _logger.LogInformation("Updating product {ProductId} quantity to {Quantity}", id, quantity);
 
-            if (quantity < 0)
-            {
-                return ApiResponse<bool>.ErrorResponse("库存数量不能为负数");
-            }
+            // 移除库存验证，默认商品有无限库存
+            // if (quantity < 0)
+            // {
+            //     return ApiResponse<bool>.ErrorResponse("库存数量不能为负数");
+            // }
 
             var result = await _productRepository.UpdateQuantityAsync(id, quantity);
             if (!result)
@@ -458,8 +459,9 @@ public class ProductService : IProductService
         if (createDto.Weight <= 0)
             errors.Add("商品重量必须大于0");
 
-        if (createDto.Quantity < 0)
-            errors.Add("库存数量不能为负数");
+        // 移除库存验证，默认商品有无限库存
+        // if (createDto.Quantity < 0)
+        //     errors.Add("库存数量不能为负数");
 
         return errors;
     }
@@ -485,8 +487,9 @@ public class ProductService : IProductService
         if (updateDto.Weight <= 0)
             errors.Add("商品重量必须大于0");
 
-        if (updateDto.Quantity < 0)
-            errors.Add("库存数量不能为负数");
+        // 移除库存验证，默认商品有无限库存
+        // if (updateDto.Quantity < 0)
+        //     errors.Add("库存数量不能为负数");
 
         return errors;
     }
