@@ -87,6 +87,22 @@ public class OrderCalculationDto
 }
 
 /// <summary>
+/// 更新订单状态请求 DTO
+/// </summary>
+public class UpdateStatusRequest
+{
+    public string Status { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// 更新支付状态请求 DTO
+/// </summary>
+public class UpdatePaymentStatusRequest
+{
+    public string PaymentStatus { get; set; } = string.Empty;
+}
+
+/// <summary>
 /// 分页结果 DTO
 /// </summary>
 /// <typeparam name="T">数据类型</typeparam>

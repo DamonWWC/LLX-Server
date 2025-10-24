@@ -115,24 +115,26 @@ public class AddressRepository : IAddressRepository
     /// <returns>是否设置成功</returns>
     public async Task<bool> SetDefaultAsync(int id)
     {
-        var address = await _context.Addresses.FindAsync(id);
-        if (address == null)
+        // 先检查地址是否存在
+        var addressExists = await _context.Addresses.AnyAsync(a => a.Id == id);
+        if (!addressExists)
             return false;
 
-        // 先取消所有默认地址
-        var allAddresses = await _context.Addresses.ToListAsync();
-        foreach (var addr in allAddresses)
-        {
-            addr.IsDefault = false;
-            addr.UpdatedAt = DateTime.UtcNow;
-        }
+        // 使用 ExecuteUpdate 批量取消所有默认地址（EF Core 8.0+）
+        await _context.Addresses
+            .Where(a => a.IsDefault == true)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(a => a.IsDefault, false)
+                .SetProperty(a => a.UpdatedAt, DateTime.UtcNow));
 
         // 设置新的默认地址
-        address.IsDefault = true;
-        address.UpdatedAt = DateTime.UtcNow;
+        var affected = await _context.Addresses
+            .Where(a => a.Id == id)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(a => a.IsDefault, true)
+                .SetProperty(a => a.UpdatedAt, DateTime.UtcNow));
 
-        await _context.SaveChangesAsync();
-        return true;
+        return affected > 0;
     }
 
     /// <summary>

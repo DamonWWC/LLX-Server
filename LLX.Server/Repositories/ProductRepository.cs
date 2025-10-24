@@ -114,15 +114,14 @@ public class ProductRepository : IProductRepository
     /// <returns>是否更新成功</returns>
     public async Task<bool> UpdateQuantityAsync(int id, int quantity)
     {
-        var product = await _context.Products.FindAsync(id);
-        if (product == null)
-            return false;
-
-        product.Quantity = quantity;
-        product.UpdatedAt = DateTime.UtcNow;
+        // 使用 ExecuteUpdate 直接生成 UPDATE SQL，性能最佳（EF Core 8.0+）
+        var affected = await _context.Products
+            .Where(p => p.Id == id)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(p => p.Quantity, quantity)
+                .SetProperty(p => p.UpdatedAt, DateTime.UtcNow));
         
-        await _context.SaveChangesAsync();
-        return true;
+        return affected > 0;
     }
 
     /// <summary>

@@ -162,15 +162,14 @@ public class OrderRepository : IOrderRepository
     /// <returns>是否更新成功</returns>
     public async Task<bool> UpdateStatusAsync(int id, string status)
     {
-        var order = await _context.Orders.FindAsync(id);
-        if (order == null)
-            return false;
+        // 直接生成 UPDATE SQL，不查询实体
+        var affected = await _context.Orders
+            .Where(o => o.Id == id)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(o => o.Status, status)
+                .SetProperty(o => o.UpdatedAt, DateTime.UtcNow));
 
-        order.Status = status;
-        order.UpdatedAt = DateTime.UtcNow;
-        
-        await _context.SaveChangesAsync();
-        return true;
+        return affected > 0;
     }
 
     /// <summary>
@@ -181,15 +180,14 @@ public class OrderRepository : IOrderRepository
     /// <returns>是否更新成功</returns>
     public async Task<bool> UpdatePaymentStatusAsync(int id, string paymentStatus)
     {
-        var order = await _context.Orders.FindAsync(id);
-        if (order == null)
-            return false;
-
-        order.PaymentStatus = paymentStatus;
-        order.UpdatedAt = DateTime.UtcNow;
+        // 使用 ExecuteUpdate 直接生成 UPDATE SQL，性能最佳（EF Core 8.0+）
+        var affected = await _context.Orders
+            .Where(o => o.Id == id)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(o => o.PaymentStatus, paymentStatus)
+                .SetProperty(o => o.UpdatedAt, DateTime.UtcNow));
         
-        await _context.SaveChangesAsync();
-        return true;
+        return affected > 0;
     }
 
     /// <summary>

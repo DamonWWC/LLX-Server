@@ -189,12 +189,12 @@ public static class OrderEndpoints
     /// 更新订单状态
     /// </summary>
     /// <param name="id">订单ID</param>
-    /// <param name="status">新状态</param>
+    /// <param name="request">状态更新请求</param>
     /// <param name="orderService">订单服务</param>
     /// <returns>更新结果</returns>
-    private static async Task<IResult> UpdateOrderStatus(int id, [FromBody] string status, IOrderService orderService)
+    private static async Task<IResult> UpdateOrderStatus(int id, UpdateStatusRequest request, IOrderService orderService)
     {
-        var result = await orderService.UpdateOrderStatusAsync(id, status);
+        var result = await orderService.UpdateOrderStatusAsync(id, request.Status);
         if (!result.Success)
         {
             return result.Data == false ? Results.NotFound(result) : Results.BadRequest(result);
@@ -206,12 +206,12 @@ public static class OrderEndpoints
     /// 更新支付状态
     /// </summary>
     /// <param name="id">订单ID</param>
-    /// <param name="paymentStatus">支付状态</param>
+    /// <param name="request">支付状态更新请求</param>
     /// <param name="orderService">订单服务</param>
     /// <returns>更新结果</returns>
-    private static async Task<IResult> UpdatePaymentStatus(int id, [FromBody] string paymentStatus, IOrderService orderService)
+    private static async Task<IResult> UpdatePaymentStatus(int id, UpdatePaymentStatusRequest request, IOrderService orderService)
     {
-        var result = await orderService.UpdatePaymentStatusAsync(id, paymentStatus);
+        var result = await orderService.UpdatePaymentStatusAsync(id, request.PaymentStatus);
         if (!result.Success)
         {
             return result.Data == false ? Results.NotFound(result) : Results.BadRequest(result);
