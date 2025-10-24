@@ -15,9 +15,9 @@ public class AddressService : IAddressService
     private readonly ICacheService _cacheService;
     private readonly ILogger<AddressService> _logger;
 
-    private const string CACHE_KEY_PREFIX = "address:";
-    private const string CACHE_KEY_ALL = "address:all";
-    private const string CACHE_KEY_DEFAULT = "address:default";
+    private const string CACHE_KEY_PREFIX = "llxrice:address:";
+    private const string CACHE_KEY_ALL = "llxrice:address:all";
+    private const string CACHE_KEY_DEFAULT = "llxrice:address:default";
     private readonly TimeSpan _cacheExpiry = TimeSpan.FromMinutes(30);
 
     public AddressService(
@@ -89,6 +89,8 @@ public class AddressService : IAddressService
             var address = await _addressRepository.GetByIdAsync(id);
             if (address == null)
             {
+                // 清除可能存在的过期缓存
+                await _cacheService.RemoveAsync(cacheKey);
                 _logger.LogWarning("Address {AddressId} not found", id);
                 return ApiResponse<AddressDto?>.ErrorResponse("地址不存在");
             }

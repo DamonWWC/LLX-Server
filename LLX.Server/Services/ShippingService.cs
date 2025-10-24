@@ -14,8 +14,8 @@ public class ShippingService : IShippingService
     private readonly ICacheService _cacheService;
     private readonly ILogger<ShippingService> _logger;
 
-    private const string CACHE_KEY_PREFIX = "shipping:";
-    private const string CACHE_KEY_ALL = "shipping:all";
+    private const string CACHE_KEY_PREFIX = "llxrice:shipping:";
+    private const string CACHE_KEY_ALL = "llxrice:shipping:all";
     private readonly TimeSpan _cacheExpiry = TimeSpan.FromHours(1); // 运费配置缓存时间更长
 
     public ShippingService(
@@ -87,6 +87,8 @@ public class ShippingService : IShippingService
             var rate = await _shippingRepository.GetByIdAsync(id);
             if (rate == null)
             {
+                // 清除可能存在的过期缓存
+                await _cacheService.RemoveAsync(cacheKey);
                 _logger.LogWarning("Shipping rate {ShippingRateId} not found", id);
                 return ApiResponse<ShippingRateDto?>.ErrorResponse("运费配置不存在");
             }

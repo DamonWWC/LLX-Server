@@ -19,8 +19,8 @@ public class OrderService : IOrderService
     private readonly ICacheService _cacheService;
     private readonly ILogger<OrderService> _logger;
 
-    private const string CACHE_KEY_PREFIX = "order:";
-    private const string CACHE_KEY_ALL = "order:all";
+    private const string CACHE_KEY_PREFIX = "llxrice:order:";
+    private const string CACHE_KEY_ALL = "llxrice:order:all";
     private readonly TimeSpan _cacheExpiry = TimeSpan.FromMinutes(15);
 
     public OrderService(
@@ -100,6 +100,8 @@ public class OrderService : IOrderService
             var order = await _orderRepository.GetByIdAsync(id);
             if (order == null)
             {
+                // 清除可能存在的过期缓存
+                await _cacheService.RemoveAsync(cacheKey);
                 _logger.LogWarning("Order {OrderId} not found", id);
                 return ApiResponse<OrderDto?>.ErrorResponse("订单不存在");
             }

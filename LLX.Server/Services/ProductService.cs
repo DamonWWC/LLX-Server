@@ -332,7 +332,7 @@ public class ProductService : IProductService
                 pageNumber, pageSize, sortBy, searchTerm);
 
             // 使用GetOrSetAsync防缓存穿透和击穿
-            var cacheKey = $"product:paged:{pageNumber}:{pageSize}:{sortBy}:{sortDescending}:{searchTerm}";
+            var cacheKey = $"llxrice:product:paged:{pageNumber}:{pageSize}:{sortBy}:{sortDescending}:{searchTerm}";
             var pagedResult = await _cacheService.GetOrSetAsync(
                 cacheKey,
                 async () =>
