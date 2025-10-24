@@ -1,0 +1,749 @@
+---
+globs: *Test*.cs,*Tests.cs
+description: 测试模式和最佳实践
+---
+
+# 测试模式和最佳实践
+
+## 测试架构
+
+### 测试项目结构
+```
+LLX.Server.Tests/
+├── Unit/
+│   ├── Services/
+│   │   ├── OrderServiceTests.cs
+│   │   ├── ProductServiceTests.cs
+│   │   └── AddressServiceTests.cs
+│   ├── Repositories/
+│   │   ├── OrderRepositoryTests.cs
+│   │   └── ProductRepositoryTests.cs
+│   └── Utils/
+│       └── OrderNumberGeneratorTests.cs
+├── Integration/
+│   ├── Api/
+│   │   ├── OrderEndpointsTests.cs
+│   │   └── ProductEndpointsTests.cs
+│   └── Database/
+│       └── RepositoryIntegrationTests.cs
+├── Performance/
+│   └── LoadTests.cs
+└── TestUtilities/
+    ├── TestDataBuilder.cs
+    ├── MockData.cs
+    └── TestDatabase.cs
+```
+
+## 单元测试模式
+
+### 服务层测试
+```csharp
+// ✅ 正确 - 服务层单元测试
+[TestFixture]
+public class OrderServiceTests
+{
+    private Mock<IOrderRepository> _mockOrderRepository;
+    private Mock<IOrderItemRepository> _mockOrderItemRepository;
+    private Mock<ICacheService> _mockCacheService;
+    private Mock<IMapper> _mockMapper;
+    private Mock<ILogger<OrderService>> _mockLogger;
+    private OrderService _orderService;
+
+    [SetUp]
+    public void Setup()
+    {
+        _mockOrderRepository = new Mock<IOrderRepository>();
+        _mockOrderItemRepository = new Mock<IOrderItemRepository>();
+        _mockCacheService = new Mock<ICacheService>();
+        _mockMapper = new Mock<IMapper>();
+        _mockLogger = new Mock<ILogger<OrderService>>();
+        
+        _orderService = new OrderService(
+            _mockOrderRepository.Object,
+            _mockOrderItemRepository.Object,
+            _mockCacheService.Object,
+            _mockMapper.Object,
+            _mockLogger.Object);
+    }
+
+    [Test]
+    public async Task GetOrderByIdAsync_WhenOrderExists_ShouldReturnOrder()
+    {
+        // Given
+        var orderId = 1;
+        var orderEntity = new Order { Id = orderId, OrderNo = "ORD001" };
+        var orderDto = new OrderDto { Id = orderId, OrderNo = "ORD001" };
+        
+        _mockOrderRepository
+            .Setup(r => r.GetByIdAsync(orderId))
+            .ReturnsAsync(orderEntity);
+        
+        _mockMapper
+            .Setup(m => m.Map<OrderDto>(orderEntity))
+            .Returns(orderDto);
+
+        // When
+        var result = await _orderService.GetOrderByIdAsync(orderId);
+
+        // Then
+        Assert.That(result.Success, Is.True);
+        Assert.That(result.Data, Is.Not.Null);
+        Assert.That(result.Data.Id, Is.EqualTo(orderId));
+        Assert.That(result.Data.OrderNo, Is.EqualTo("ORD001"));
+    }
+
+    [Test]
+    public async Task GetOrderByIdAsync_WhenOrderNotFound_ShouldReturnError()
+    {
+        // Given
+        var orderId = 999;
+        _mockOrderRepository
+            .Setup(r => r.GetByIdAsync(orderId))
+            .ReturnsAsync((Order?)null);
+
+        // When
+        var result = await _orderService.GetOrderByIdAsync(orderId);
+
+        // Then
+        Assert.That(result.Success, Is.False);
+        Assert.That(result.ErrorCode, Is.EqualTo("ORDER_NOT_FOUND"));
+        Assert.That(result.Message, Is.EqualTo("订单不存在"));
+    }
+
+    [Test]
+    public async Task CreateOrderAsync_WhenValidInput_ShouldCreateOrder()
+    {
+        // Given
+        var createDto = new CreateOrderDto
+        {
+            AddressId = 1,
+            Items = new List<CreateOrderItemDto>
+            {
+                new() { ProductId = 1, Quantity = 2 }
+            }
+        };
+
+        var orderEntity = new Order { Id = 1, OrderNo = "ORD001" };
+        var orderDto = new OrderDto { Id = 1, OrderNo = "ORD001" };
+
+        _mockOrderRepository
+            .Setup(r => r.CreateAsync(It.IsAny<CreateOrderDto>()))
+            .ReturnsAsync(orderEntity);
+        
+        _mockMapper
+            .Setup(m => m.Map<OrderDto>(orderEntity))
+            .Returns(orderDto);
+
+        // When
+        var result = await _orderService.CreateOrderAsync(createDto);
+
+        // Then
+        Assert.That(result.Success, Is.True);
+        Assert.That(result.Data, Is.Not.Null);
+        _mockOrderRepository.Verify(r => r.CreateAsync(createDto), Times.Once);
+        _mockOrderItemRepository.Verify(r => r.AddRangeAsync(It.IsAny<IEnumerable<OrderItem>>()), Times.Once);
+    }
+}
+```
+
+### Repository 层测试
+```csharp
+// ✅ 正确 - Repository 层单元测试
+[TestFixture]
+public class OrderRepositoryTests
+{
+    private DbContextOptions<AppDbContext> _options;
+    private AppDbContext _context;
+    private OrderRepository _repository;
+
+    [SetUp]
+    public void Setup()
+    {
+        _options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase(databaseName: Guid.NewGuid().ToString())
+            .Options;
+        
+        _context = new AppDbContext(_options);
+        _repository = new OrderRepository(_context);
+        
+        // 初始化测试数据
+        SeedTestData();
+    }
+
+    [TearDown]
+    public void TearDown()
+    {
+        _context.Dispose();
+    }
+
+    [Test]
+    public async Task GetByIdAsync_WhenOrderExists_ShouldReturnOrder()
+    {
+        // Given
+        var orderId = 1;
+
+        // When
+        var result = await _repository.GetByIdAsync(orderId);
+
+        // Then
+        Assert.That(result, Is.Not.Null);
+        Assert.That(result.Id, Is.EqualTo(orderId));
+    }
+
+    [Test]
+    public async Task UpdateStatusAsync_WhenOrderExists_ShouldUpdateStatus()
+    {
+        // Given
+        var orderId = 1;
+        var newStatus = "已发货";
+
+        // When
+        var result = await _repository.UpdateStatusAsync(orderId, newStatus);
+
+        // Then
+        Assert.That(result, Is.True);
+        
+        var updatedOrder = await _context.Orders.FindAsync(orderId);
+        Assert.That(updatedOrder.Status, Is.EqualTo(newStatus));
+    }
+
+    private void SeedTestData()
+    {
+        var orders = new List<Order>
+        {
+            new() { Id = 1, OrderNo = "ORD001", Status = "待发货" },
+            new() { Id = 2, OrderNo = "ORD002", Status = "已发货" }
+        };
+        
+        _context.Orders.AddRange(orders);
+        _context.SaveChanges();
+    }
+}
+```
+
+## 集成测试模式
+
+### API 端点测试
+```csharp
+// ✅ 正确 - API 端点集成测试
+[TestFixture]
+public class OrderEndpointsTests
+{
+    private WebApplicationFactory<Program> _factory;
+    private HttpClient _client;
+
+    [SetUp]
+    public void Setup()
+    {
+        _factory = new WebApplicationFactory<Program>()
+            .WithWebHostBuilder(builder =>
+            {
+                builder.ConfigureServices(services =>
+                {
+                    // 替换为测试数据库
+                    services.AddDbContext<AppDbContext>(options =>
+                        options.UseInMemoryDatabase("TestDb"));
+                    
+                    // 替换为测试缓存服务
+                    services.AddScoped<ICacheService, TestCacheService>();
+                });
+            });
+        
+        _client = _factory.CreateClient();
+    }
+
+    [TearDown]
+    public void TearDown()
+    {
+        _client.Dispose();
+        _factory.Dispose();
+    }
+
+    [Test]
+    public async Task GetOrderById_WhenOrderExists_ShouldReturn200()
+    {
+        // Given
+        var orderId = 1;
+        await SeedTestOrder(orderId);
+
+        // When
+        var response = await _client.GetAsync($"/api/orders/{orderId}");
+
+        // Then
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        
+        var content = await response.Content.ReadAsStringAsync();
+        var result = JsonSerializer.Deserialize<ApiResponse<OrderDto>>(content);
+        
+        Assert.That(result.Success, Is.True);
+        Assert.That(result.Data.Id, Is.EqualTo(orderId));
+    }
+
+    [Test]
+    public async Task CreateOrder_WhenValidInput_ShouldReturn201()
+    {
+        // Given
+        var createDto = new CreateOrderDto
+        {
+            AddressId = 1,
+            Items = new List<CreateOrderItemDto>
+            {
+                new() { ProductId = 1, Quantity = 2 }
+            }
+        };
+
+        var json = JsonSerializer.Serialize(createDto);
+        var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+        // When
+        var response = await _client.PostAsync("/api/orders", content);
+
+        // Then
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Created));
+        
+        var responseContent = await response.Content.ReadAsStringAsync();
+        var result = JsonSerializer.Deserialize<ApiResponse<OrderDto>>(responseContent);
+        
+        Assert.That(result.Success, Is.True);
+        Assert.That(result.Data, Is.Not.Null);
+    }
+
+    private async Task SeedTestOrder(int orderId)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        
+        var order = new Order { Id = orderId, OrderNo = "ORD001" };
+        context.Orders.Add(order);
+        await context.SaveChangesAsync();
+    }
+}
+```
+
+### 数据库集成测试
+```csharp
+// ✅ 正确 - 数据库集成测试
+[TestFixture]
+public class RepositoryIntegrationTests
+{
+    private DbContextOptions<AppDbContext> _options;
+    private AppDbContext _context;
+
+    [SetUp]
+    public void Setup()
+    {
+        _options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseNpgsql("Host=localhost;Database=llxrice_test;Username=test;Password=test")
+            .Options;
+        
+        _context = new AppDbContext(_options);
+        
+        // 清理测试数据
+        _context.Database.EnsureDeleted();
+        _context.Database.EnsureCreated();
+    }
+
+    [TearDown]
+    public void TearDown()
+    {
+        _context.Database.EnsureDeleted();
+        _context.Dispose();
+    }
+
+    [Test]
+    public async Task OrderRepository_CRUD_Operations_ShouldWork()
+    {
+        // Given
+        var repository = new OrderRepository(_context);
+        var order = new Order
+        {
+            OrderNo = "ORD001",
+            Status = "待发货",
+            PaymentStatus = "未付款"
+        };
+
+        // When - Create
+        var createdOrder = await repository.CreateAsync(new CreateOrderDto
+        {
+            AddressId = 1,
+            Items = new List<CreateOrderItemDto>()
+        });
+
+        // Then
+        Assert.That(createdOrder.Id, Is.GreaterThan(0));
+
+        // When - Read
+        var retrievedOrder = await repository.GetByIdAsync(createdOrder.Id);
+
+        // Then
+        Assert.That(retrievedOrder, Is.Not.Null);
+        Assert.That(retrievedOrder.OrderNo, Is.EqualTo("ORD001"));
+
+        // When - Update
+        var updateResult = await repository.UpdateStatusAsync(createdOrder.Id, "已发货");
+
+        // Then
+        Assert.That(updateResult, Is.True);
+        
+        var updatedOrder = await repository.GetByIdAsync(createdOrder.Id);
+        Assert.That(updatedOrder.Status, Is.EqualTo("已发货"));
+
+        // When - Delete
+        var deleteResult = await repository.DeleteAsync(createdOrder.Id);
+
+        // Then
+        Assert.That(deleteResult, Is.True);
+        
+        var deletedOrder = await repository.GetByIdAsync(createdOrder.Id);
+        Assert.That(deletedOrder, Is.Null);
+    }
+}
+```
+
+## 性能测试模式
+
+### 负载测试
+```csharp
+// ✅ 正确 - 性能测试
+[TestFixture]
+public class PerformanceTests
+{
+    private WebApplicationFactory<Program> _factory;
+    private HttpClient _client;
+
+    [SetUp]
+    public void Setup()
+    {
+        _factory = new WebApplicationFactory<Program>();
+        _client = _factory.CreateClient();
+    }
+
+    [Test]
+    public async Task GetOrders_UnderLoad_ShouldMeetPerformanceRequirements()
+    {
+        // Given
+        const int concurrentRequests = 100;
+        const int maxResponseTimeMs = 1000;
+
+        // When
+        var tasks = Enumerable.Range(0, concurrentRequests)
+            .Select(_ => GetOrdersWithTiming())
+            .ToArray();
+
+        var results = await Task.WhenAll(tasks);
+
+        // Then
+        var averageResponseTime = results.Average(r => r.ResponseTimeMs);
+        var successCount = results.Count(r => r.IsSuccess);
+
+        Assert.That(averageResponseTime, Is.LessThan(maxResponseTimeMs));
+        Assert.That(successCount, Is.EqualTo(concurrentRequests));
+    }
+
+    private async Task<(bool IsSuccess, long ResponseTimeMs)> GetOrdersWithTiming()
+    {
+        var stopwatch = Stopwatch.StartNew();
+        
+        try
+        {
+            var response = await _client.GetAsync("/api/orders");
+            stopwatch.Stop();
+            
+            return (response.IsSuccessStatusCode, stopwatch.ElapsedMilliseconds);
+        }
+        catch
+        {
+            stopwatch.Stop();
+            return (false, stopwatch.ElapsedMilliseconds);
+        }
+    }
+}
+```
+
+## 测试工具和辅助类
+
+### 测试数据构建器
+```csharp
+// ✅ 正确 - 测试数据构建器
+public class OrderTestDataBuilder
+{
+    private Order _order = new();
+
+    public OrderTestDataBuilder WithId(int id)
+    {
+        _order.Id = id;
+        return this;
+    }
+
+    public OrderTestDataBuilder WithOrderNo(string orderNo)
+    {
+        _order.OrderNo = orderNo;
+        return this;
+    }
+
+    public OrderTestDataBuilder WithStatus(string status)
+    {
+        _order.Status = status;
+        return this;
+    }
+
+    public OrderTestDataBuilder WithPaymentStatus(string paymentStatus)
+    {
+        _order.PaymentStatus = paymentStatus;
+        return this;
+    }
+
+    public OrderTestDataBuilder WithDefaultValues()
+    {
+        _order.OrderNo = "ORD001";
+        _order.Status = "待发货";
+        _order.PaymentStatus = "未付款";
+        _order.CreatedAt = DateTime.UtcNow;
+        return this;
+    }
+
+    public Order Build()
+    {
+        return _order;
+    }
+
+    public static OrderTestDataBuilder Create() => new();
+}
+
+// 使用示例
+[Test]
+public void TestWithBuilder()
+{
+    // Given
+    var order = OrderTestDataBuilder.Create()
+        .WithId(1)
+        .WithOrderNo("ORD001")
+        .WithStatus("已发货")
+        .Build();
+
+    // When & Then
+    Assert.That(order.Id, Is.EqualTo(1));
+    Assert.That(order.OrderNo, Is.EqualTo("ORD001"));
+    Assert.That(order.Status, Is.EqualTo("已发货"));
+}
+```
+
+### Mock 辅助类
+```csharp
+// ✅ 正确 - Mock 辅助类
+public static class MockExtensions
+{
+    public static void SetupSuccessfulGet<T>(this Mock<IRepository<T>> mock, T entity)
+        where T : class
+    {
+        mock.Setup(r => r.GetByIdAsync(It.IsAny<int>()))
+            .ReturnsAsync(entity);
+    }
+
+    public static void SetupNotFound<T>(this Mock<IRepository<T>> mock)
+        where T : class
+    {
+        mock.Setup(r => r.GetByIdAsync(It.IsAny<int>()))
+            .ReturnsAsync((T?)null);
+    }
+
+    public static void VerifyCreateCalledOnce<T>(this Mock<IRepository<T>> mock)
+        where T : class
+    {
+        mock.Verify(r => r.CreateAsync(It.IsAny<object>()), Times.Once);
+    }
+}
+
+// 使用示例
+[Test]
+public void TestWithMockExtensions()
+{
+    // Given
+    var mockRepository = new Mock<IOrderRepository>();
+    var order = new Order { Id = 1, OrderNo = "ORD001" };
+    
+    mockRepository.SetupSuccessfulGet(order);
+
+    // When
+    var result = await _orderService.GetOrderByIdAsync(1);
+
+    // Then
+    Assert.That(result.Success, Is.True);
+    mockRepository.VerifyCreateCalledOnce();
+}
+```
+
+## 测试配置
+
+### 测试环境配置
+```json
+// ✅ 正确 - 测试环境配置
+{
+  "ConnectionStrings": {
+    "DefaultConnection": "Host=localhost;Database=llxrice_test;Username=test;Password=test"
+  },
+  "Redis": {
+    "ConnectionString": "localhost:6379,testDatabase=1"
+  },
+  "Logging": {
+    "LogLevel": {
+      "Default": "Warning",
+      "LLX.Server": "Information"
+    }
+  }
+}
+```
+
+### 测试基类
+```csharp
+// ✅ 正确 - 测试基类
+public abstract class IntegrationTestBase
+{
+    protected WebApplicationFactory<Program> Factory { get; private set; } = null!;
+    protected HttpClient Client { get; private set; } = null!;
+    protected IServiceScope Scope { get; private set; } = null!;
+    protected AppDbContext Context { get; private set; } = null!;
+
+    [SetUp]
+    public virtual void Setup()
+    {
+        Factory = new WebApplicationFactory<Program>()
+            .WithWebHostBuilder(ConfigureTestServices);
+        
+        Client = Factory.CreateClient();
+        Scope = Factory.Services.CreateScope();
+        Context = Scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        
+        Context.Database.EnsureCreated();
+    }
+
+    [TearDown]
+    public virtual void TearDown()
+    {
+        Context?.Dispose();
+        Scope?.Dispose();
+        Client?.Dispose();
+        Factory?.Dispose();
+    }
+
+    protected virtual void ConfigureTestServices(IWebHostBuilder builder)
+    {
+        builder.ConfigureServices(services =>
+        {
+            // 替换为测试数据库
+            services.AddDbContext<AppDbContext>(options =>
+                options.UseInMemoryDatabase("TestDb"));
+            
+            // 替换为测试缓存服务
+            services.AddScoped<ICacheService, TestCacheService>();
+        });
+    }
+
+    protected async Task<T> SeedEntityAsync<T>(T entity) where T : class
+    {
+        Context.Set<T>().Add(entity);
+        await Context.SaveChangesAsync();
+        return entity;
+    }
+}
+```
+
+## 测试最佳实践
+
+### 1. 测试命名
+```csharp
+// ✅ 正确 - 使用 Given_When_Then 模式命名
+[Test]
+public void GetOrderById_WhenOrderExists_ShouldReturnOrder() { }
+
+[Test]
+public void CreateOrder_WhenInvalidInput_ShouldReturnError() { }
+
+[Test]
+public void UpdateOrderStatus_WhenOrderNotFound_ShouldReturnFalse() { }
+```
+
+### 2. 测试隔离
+```csharp
+// ✅ 正确 - 每个测试独立运行
+[TestFixture]
+public class OrderServiceTests
+{
+    [SetUp]
+    public void Setup()
+    {
+        // 每个测试前重新初始化
+    }
+
+    [TearDown]
+    public void TearDown()
+    {
+        // 每个测试后清理资源
+    }
+}
+```
+
+### 3. 测试数据管理
+```csharp
+// ✅ 正确 - 使用测试数据工厂
+public static class TestDataFactory
+{
+    public static Order CreateOrder(int id = 1) => new()
+    {
+        Id = id,
+        OrderNo = $"ORD{id:D3}",
+        Status = "待发货",
+        PaymentStatus = "未付款"
+    };
+
+    public static List<Order> CreateOrders(int count) =>
+        Enumerable.Range(1, count)
+            .Select(CreateOrder)
+            .ToList();
+}
+```
+
+### 4. 异步测试
+```csharp
+// ✅ 正确 - 异步测试模式
+[Test]
+public async Task GetOrderByIdAsync_WhenOrderExists_ShouldReturnOrder()
+{
+    // Given
+    var orderId = 1;
+    var expectedOrder = new Order { Id = orderId };
+
+    // When
+    var result = await _orderService.GetOrderByIdAsync(orderId);
+
+    // Then
+    Assert.That(result.Success, Is.True);
+    Assert.That(result.Data.Id, Is.EqualTo(orderId));
+}
+```
+
+### 5. 测试覆盖率
+```csharp
+// ✅ 正确 - 确保测试覆盖所有分支
+[Test]
+public void ValidateCreateOrder_WhenInputIsNull_ShouldThrowException()
+{
+    // Given
+    CreateOrderDto? createDto = null;
+
+    // When & Then
+    Assert.Throws<ArgumentNullException>(() => 
+        _orderService.ValidateCreateOrder(createDto!));
+}
+
+[Test]
+public void ValidateCreateOrder_WhenAddressIdIsZero_ShouldThrowException()
+{
+    // Given
+    var createDto = new CreateOrderDto { AddressId = 0 };
+
+    // When & Then
+    Assert.Throws<ArgumentException>(() => 
+        _orderService.ValidateCreateOrder(createDto));
+}
+```

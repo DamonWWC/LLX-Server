@@ -1,0 +1,155 @@
+---
+alwaysApply: true
+description: LLX.Server 项目 Cursor Rules 总览
+---
+
+# LLX.Server 项目 Cursor Rules 总览
+
+## 规则文件说明
+
+本项目包含以下 Cursor Rules 文件，用于指导 AI 助手更好地理解和操作代码库：
+
+### 1. 项目结构规则
+- **文件**: [project-structure.mdc](mdc:.cursor/rules/project-structure.mdc)
+- **作用**: 始终应用，提供项目整体架构和文件组织说明
+- **内容**: 项目概述、核心架构、技术栈、分层结构
+
+### 2. 编码规范规则
+- **文件**: [coding-standards.mdc](mdc:.cursor/rules/coding-standards.mdc)
+- **作用**: 应用于所有 C# 文件 (*.cs)
+- **内容**: 命名规范、代码组织、异常处理、异步编程、性能优化
+
+### 3. EF Core 模式规则
+- **文件**: [ef-core-patterns.mdc](mdc:.cursor/rules/ef-core-patterns.mdc)
+- **作用**: 应用于 Repository 和 Service 文件
+- **内容**: 数据访问模式、ExecuteUpdate 使用、查询优化、事务处理
+
+### 4. API 设计规则
+- **文件**: [api-design.mdc](mdc:.cursor/rules/api-design.mdc)
+- **作用**: 应用于 Endpoints 文件
+- **内容**: Minimal API 设计、路由设计、请求验证、错误处理
+
+### 5. 缓存策略规则
+- **文件**: [caching-strategy.mdc](mdc:.cursor/rules/caching-strategy.mdc)
+- **作用**: 应用于 Service 和 CacheService 文件
+- **内容**: Redis 集成、缓存模式、性能优化、异常处理
+
+### 6. 部署 Docker 规则
+- **文件**: [deployment-docker.mdc](mdc:.cursor/rules/deployment-docker.mdc)
+- **作用**: 应用于 Docker 相关文件
+- **内容**: 容器化最佳实践、部署脚本、环境配置、安全配置
+
+### 7. 测试模式规则
+- **文件**: [testing-patterns.mdc](mdc:.cursor/rules/testing-patterns.mdc)
+- **作用**: 应用于测试文件
+- **内容**: 单元测试、集成测试、性能测试、测试工具
+
+### 8. 安全实践规则
+- **文件**: [security-practices.mdc](mdc:.cursor/rules/security-practices.mdc)
+- **作用**: 应用于中间件、服务和配置文件
+- **内容**: 身份验证、数据加密、输入验证、安全配置
+
+## 使用指南
+
+### 自动应用规则
+- `project-structure.mdc` - 始终自动应用，提供项目上下文
+- 其他规则根据文件类型自动匹配应用
+
+### 手动引用规则
+当需要特定指导时，可以引用相关规则：
+```
+请参考 ef-core-patterns.mdc 中的 ExecuteUpdate 使用模式
+请按照 api-design.mdc 中的规范设计新的 API 端点
+请遵循 security-practices.mdc 中的安全最佳实践
+```
+
+## 项目特色
+
+### 技术栈
+- **.NET 8.0** - 最新 LTS 版本
+- **EF Core 8.0** - 使用 ExecuteUpdate 等新特性
+- **Minimal API** - 现代化 API 设计
+- **Redis** - 高性能缓存
+- **PostgreSQL** - 可靠的关系数据库
+- **Docker** - 容器化部署
+
+### 架构特点
+- **Clean Architecture** - 清晰的分层架构
+- **Repository Pattern** - 数据访问抽象
+- **CQRS 思想** - 读写分离
+- **缓存策略** - 多层缓存设计
+- **安全优先** - 全面的安全措施
+
+### 开发规范
+- **异步优先** - 所有 I/O 操作异步化
+- **性能优化** - 使用 EF Core 8.0 新特性
+- **错误处理** - 统一的异常处理机制
+- **日志记录** - 结构化日志和监控
+- **测试驱动** - 完整的测试覆盖
+
+## 快速开始
+
+### 1. 了解项目结构
+首先阅读 `project-structure.mdc` 了解整体架构
+
+### 2. 开发新功能
+- 参考 `coding-standards.mdc` 编写代码
+- 使用 `ef-core-patterns.mdc` 进行数据访问
+- 按照 `api-design.mdc` 设计 API 端点
+
+### 3. 性能优化
+- 参考 `caching-strategy.mdc` 实现缓存
+- 使用 `ef-core-patterns.mdc` 中的 ExecuteUpdate
+
+### 4. 安全加固
+- 遵循 `security-practices.mdc` 中的安全规范
+- 实现身份验证和授权
+
+### 5. 测试验证
+- 使用 `testing-patterns.mdc` 编写测试
+- 确保代码质量和覆盖率
+
+### 6. 部署上线
+- 参考 `deployment-docker.mdc` 进行容器化部署
+- 配置生产环境
+
+## 规则维护
+
+### 更新规则
+当项目架构或规范发生变化时，需要更新相应的规则文件：
+
+1. 修改相关规则文件内容
+2. 更新本 README 文件
+3. 通知团队成员规则变更
+
+### 添加新规则
+当需要新的指导规则时：
+
+1. 创建新的 `.mdc` 文件
+2. 设置适当的 `globs` 或 `description`
+3. 在本 README 中添加说明
+4. 测试规则是否正常工作
+
+## 注意事项
+
+### 规则优先级
+1. 用户明确指令 > Cursor Rules
+2. 项目特定规则 > 通用规则
+3. 安全规则 > 性能规则 > 代码风格规则
+
+### 规则冲突处理
+当规则之间发生冲突时：
+1. 优先考虑安全性和正确性
+2. 其次考虑性能和可维护性
+3. 最后考虑代码风格和一致性
+
+### 规则适用性
+- 规则主要针对 LLX.Server 项目
+- 其他项目可能需要调整
+- 定期审查和更新规则内容
+
+---
+
+**最后更新**: 2024年10月24日  
+**版本**: 1.0.0  
+**维护者**: LLX.Server 开发团队

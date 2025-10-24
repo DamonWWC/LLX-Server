@@ -1,0 +1,482 @@
+---
+globs: *Service.cs,*CacheService.cs
+description: 缓存策略和 Redis 集成最佳实践
+---
+
+# 缓存策略和 Redis 集成最佳实践
+
+## 缓存架构
+
+### 缓存服务接口
+参考 [Services/ICacheService.cs](mdc:LLX.Server/Services/ICacheService.cs) 和 [Services/RedisCacheService.cs](mdc:LLX.Server/Services/RedisCacheService.cs)：
+
+```csharp
+public interface ICacheService
+{
+    Task<T?> GetAsync<T>(string key);
+    Task SetAsync<T>(string key, T value, TimeSpan? expiry = null);
+    Task RemoveAsync(string key);
+    Task RemoveByPatternAsync(string pattern);
+    Task<T> GetOrSetAsync<T>(string key, Func<Task<T>> factory, TimeSpan? expiry = null);
+}
+```
+
+### 缓存键策略
+参考 [Services/CacheStrategy.cs](mdc:LLX.Server/Services/CacheStrategy.cs)：
+
+```csharp
+public static class CacheStrategy
+{
+    // 缓存键前缀
+    public const string ORDER_PREFIX = "llxrice:order:";
+    public const string PRODUCT_PREFIX = "llxrice:product:";
+    public const string ADDRESS_PREFIX = "llxrice:address:";
+    public const string SHIPPING_PREFIX = "llxrice:shipping:";
+    
+    // 缓存过期时间
+    public static readonly TimeSpan OrderCacheExpiry = TimeSpan.FromMinutes(30);
+    public static readonly TimeSpan ProductCacheExpiry = TimeSpan.FromHours(1);
+    public static readonly TimeSpan AddressCacheExpiry = TimeSpan.FromHours(2);
+    public static readonly TimeSpan ShippingCacheExpiry = TimeSpan.FromHours(6);
+}
+```
+
+## 缓存模式
+
+### 1. 缓存穿透防护
+```csharp
+// ✅ 正确 - 使用 GetOrSetAsync 防止缓存穿透
+public async Task<OrderDto?> GetOrderByIdAsync(int id)
+{
+    var cacheKey = $"{CacheStrategy.ORDER_PREFIX}{id}";
+    
+    return await _cacheService.GetOrSetAsync(cacheKey, async () =>
+    {
+        var order = await _orderRepository.GetByIdAsync(id);
+        
+        // 如果订单不存在，返回 null 并缓存
+        // 防止缓存穿透攻击
+        return order != null ? _mapper.Map<OrderDto>(order) : null;
+    }, CacheStrategy.OrderCacheExpiry);
+}
+```
+
+### 2. 缓存更新策略
+```csharp
+// ✅ 正确 - 更新时清除相关缓存
+public async Task<ApiResponse<OrderDto>> UpdateOrderStatusAsync(int id, string status)
+{
+    var result = await _orderRepository.UpdateStatusAsync(id, status);
+    
+    if (result)
+    {
+        // 清除单个订单缓存
+        await _cacheService.RemoveAsync($"{CacheStrategy.ORDER_PREFIX}{id}");
+        
+        // 清除列表缓存
+        await _cacheService.RemoveByPatternAsync($"{CacheStrategy.ORDER_PREFIX}all*");
+        await _cacheService.RemoveByPatternAsync($"{CacheStrategy.ORDER_PREFIX}paged*");
+    }
+    
+    return ApiResponse<bool>.Success(result);
+}
+```
+
+### 3. 批量缓存操作
+```csharp
+// ✅ 正确 - 批量删除时清除多个缓存
+public async Task<ApiResponse<bool>> DeleteOrdersAsync(List<int> ids)
+{
+    var result = await _orderRepository.DeleteAllAsync(ids);
+    
+    if (result)
+    {
+        // 清除所有相关订单的缓存
+        var tasks = ids.Select(id => 
+            _cacheService.RemoveAsync($"{CacheStrategy.ORDER_PREFIX}{id}"));
+        await Task.WhenAll(tasks);
+        
+        // 清除列表缓存
+        await _cacheService.RemoveByPatternAsync($"{CacheStrategy.ORDER_PREFIX}all*");
+        await _cacheService.RemoveByPatternAsync($"{CacheStrategy.ORDER_PREFIX}paged*");
+    }
+    
+    return ApiResponse<bool>.Success(result);
+}
+```
+
+## 缓存实现模式
+
+### 基础缓存操作
+```csharp
+// ✅ 正确 - 在服务层集成缓存
+public class OrderService : IOrderService
+{
+    private readonly IOrderRepository _orderRepository;
+    private readonly ICacheService _cacheService;
+    private readonly ILogger<OrderService> _logger;
+    
+    public async Task<ApiResponse<OrderDto>> GetOrderByIdAsync(int id)
+    {
+        var cacheKey = $"{CacheStrategy.ORDER_PREFIX}{id}";
+        
+        try
+        {
+            var order = await _cacheService.GetOrSetAsync(cacheKey, async () =>
+            {
+                var entity = await _orderRepository.GetByIdAsync(id);
+                return entity != null ? _mapper.Map<OrderDto>(entity) : null;
+            }, CacheStrategy.OrderCacheExpiry);
+            
+            if (order == null)
+            {
+                // 如果缓存中也没有，清除可能的过期缓存
+                await _cacheService.RemoveAsync(cacheKey);
+                return ApiResponse<OrderDto>.Error("ORDER_NOT_FOUND", "订单不存在");
+            }
+            
+            return ApiResponse<OrderDto>.Success(order);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "获取订单缓存失败，ID: {OrderId}", id);
+            // 缓存失败时直接从数据库获取
+            var order = await _orderRepository.GetByIdAsync(id);
+            return order != null 
+                ? ApiResponse<OrderDto>.Success(_mapper.Map<OrderDto>(order))
+                : ApiResponse<OrderDto>.Error("ORDER_NOT_FOUND", "订单不存在");
+        }
+    }
+}
+```
+
+### 分页缓存
+```csharp
+// ✅ 正确 - 分页结果缓存
+public async Task<ApiResponse<PagedResult<OrderDto>>> GetOrdersPagedAsync(
+    int pageNumber, int pageSize, string? searchTerm = null, string? status = null)
+{
+    var cacheKey = $"{CacheStrategy.ORDER_PREFIX}paged:{pageNumber}:{pageSize}:{searchTerm}:{status}";
+    
+    return await _cacheService.GetOrSetAsync(cacheKey, async () =>
+    {
+        var result = await _orderRepository.GetPagedAsync(pageNumber, pageSize, searchTerm, status);
+        return ApiResponse<PagedResult<OrderDto>>.Success(result);
+    }, CacheStrategy.OrderCacheExpiry);
+}
+```
+
+### 列表缓存
+```csharp
+// ✅ 正确 - 列表数据缓存
+public async Task<ApiResponse<List<OrderDto>>> GetAllOrdersAsync()
+{
+    var cacheKey = $"{CacheStrategy.ORDER_PREFIX}all";
+    
+    return await _cacheService.GetOrSetAsync(cacheKey, async () =>
+    {
+        var orders = await _orderRepository.GetAllAsync();
+        var orderDtos = _mapper.Map<List<OrderDto>>(orders);
+        return ApiResponse<List<OrderDto>>.Success(orderDtos);
+    }, CacheStrategy.OrderCacheExpiry);
+}
+```
+
+## 缓存失效策略
+
+### 1. 立即失效
+```csharp
+// ✅ 正确 - 创建/更新/删除时立即清除缓存
+public async Task<ApiResponse<OrderDto>> CreateOrderAsync(CreateOrderDto createDto)
+{
+    var result = await _orderRepository.CreateAsync(createDto);
+    
+    if (result.Success)
+    {
+        // 清除列表缓存，新订单会影响列表
+        await _cacheService.RemoveByPatternAsync($"{CacheStrategy.ORDER_PREFIX}all*");
+        await _cacheService.RemoveByPatternAsync($"{CacheStrategy.ORDER_PREFIX}paged*");
+    }
+    
+    return result;
+}
+```
+
+### 2. 延迟失效
+```csharp
+// ✅ 正确 - 使用较短的过期时间实现延迟失效
+public async Task<ApiResponse<ProductDto>> UpdateProductAsync(int id, UpdateProductDto updateDto)
+{
+    var result = await _productRepository.UpdateAsync(id, updateDto);
+    
+    if (result.Success)
+    {
+        // 立即清除单个产品缓存
+        await _cacheService.RemoveAsync($"{CacheStrategy.PRODUCT_PREFIX}{id}");
+        
+        // 列表缓存使用较短的过期时间，让其自然过期
+        // 或者可以选择立即清除
+        await _cacheService.RemoveByPatternAsync($"{CacheStrategy.PRODUCT_PREFIX}all*");
+    }
+    
+    return result;
+}
+```
+
+### 3. 条件失效
+```csharp
+// ✅ 正确 - 根据业务逻辑决定是否清除缓存
+public async Task<ApiResponse<AddressDto>> SetDefaultAddressAsync(int id)
+{
+    var result = await _addressRepository.SetDefaultAsync(id);
+    
+    if (result.Success)
+    {
+        // 设置默认地址会影响所有地址的 IsDefault 状态
+        // 清除所有地址缓存
+        await _cacheService.RemoveByPatternAsync($"{CacheStrategy.ADDRESS_PREFIX}*");
+    }
+    
+    return result;
+}
+```
+
+## 缓存性能优化
+
+### 1. 缓存预热
+```csharp
+// ✅ 正确 - 应用启动时预热常用数据
+public class CacheWarmupService
+{
+    private readonly ICacheService _cacheService;
+    private readonly IProductRepository _productRepository;
+    
+    public async Task WarmupCacheAsync()
+    {
+        // 预热商品列表
+        var products = await _productRepository.GetAllAsync();
+        await _cacheService.SetAsync(
+            $"{CacheStrategy.PRODUCT_PREFIX}all", 
+            products, 
+            CacheStrategy.ProductCacheExpiry);
+        
+        // 预热运费信息
+        var shippingRates = await _shippingRepository.GetAllAsync();
+        await _cacheService.SetAsync(
+            $"{CacheStrategy.SHIPPING_PREFIX}all", 
+            shippingRates, 
+            CacheStrategy.ShippingCacheExpiry);
+    }
+}
+```
+
+### 2. 缓存压缩
+```csharp
+// ✅ 正确 - 在 RedisCacheService 中实现压缩
+public class RedisCacheService : ICacheService
+{
+    public async Task SetAsync<T>(string key, T value, TimeSpan? expiry = null)
+    {
+        var serialized = JsonSerializer.Serialize(value);
+        
+        // 对于大对象，可以考虑压缩
+        if (serialized.Length > 1024) // 大于 1KB
+        {
+            var compressed = CompressString(serialized);
+            await _database.StringSetAsync(key, compressed, expiry);
+        }
+        else
+        {
+            await _database.StringSetAsync(key, serialized, expiry);
+        }
+    }
+    
+    private byte[] CompressString(string text)
+    {
+        // 实现字符串压缩逻辑
+        // 可以使用 GZip 或其他压缩算法
+    }
+}
+```
+
+### 3. 缓存监控
+```csharp
+// ✅ 正确 - 添加缓存监控和统计
+public class RedisCacheService : ICacheService
+{
+    private readonly ILogger<RedisCacheService> _logger;
+    private long _hitCount = 0;
+    private long _missCount = 0;
+    
+    public async Task<T?> GetAsync<T>(string key)
+    {
+        var value = await _database.StringGetAsync(key);
+        
+        if (value.HasValue)
+        {
+            Interlocked.Increment(ref _hitCount);
+            return JsonSerializer.Deserialize<T>(value!);
+        }
+        else
+        {
+            Interlocked.Increment(ref _missCount);
+            return default;
+        }
+    }
+    
+    public CacheStatistics GetStatistics()
+    {
+        var total = _hitCount + _missCount;
+        return new CacheStatistics
+        {
+            HitCount = _hitCount,
+            MissCount = _missCount,
+            HitRate = total > 0 ? (double)_hitCount / total : 0
+        };
+    }
+}
+```
+
+## 缓存异常处理
+
+### 1. 缓存降级
+```csharp
+// ✅ 正确 - 缓存失败时降级到数据库
+public async Task<ApiResponse<OrderDto>> GetOrderByIdAsync(int id)
+{
+    var cacheKey = $"{CacheStrategy.ORDER_PREFIX}{id}";
+    
+    try
+    {
+        // 尝试从缓存获取
+        var cachedOrder = await _cacheService.GetAsync<OrderDto>(cacheKey);
+        if (cachedOrder != null)
+        {
+            return ApiResponse<OrderDto>.Success(cachedOrder);
+        }
+    }
+    catch (Exception ex)
+    {
+        _logger.LogWarning(ex, "缓存获取失败，降级到数据库查询，Key: {CacheKey}", cacheKey);
+    }
+    
+    // 缓存失败，直接从数据库获取
+    var order = await _orderRepository.GetByIdAsync(id);
+    if (order == null)
+    {
+        return ApiResponse<OrderDto>.Error("ORDER_NOT_FOUND", "订单不存在");
+    }
+    
+    var orderDto = _mapper.Map<OrderDto>(order);
+    
+    // 尝试更新缓存（失败也不影响主流程）
+    try
+    {
+        await _cacheService.SetAsync(cacheKey, orderDto, CacheStrategy.OrderCacheExpiry);
+    }
+    catch (Exception ex)
+    {
+        _logger.LogWarning(ex, "缓存更新失败，Key: {CacheKey}", cacheKey);
+    }
+    
+    return ApiResponse<OrderDto>.Success(orderDto);
+}
+```
+
+### 2. 缓存重试
+```csharp
+// ✅ 正确 - 实现缓存重试机制
+public async Task<T> GetOrSetAsync<T>(string key, Func<Task<T>> factory, TimeSpan? expiry = null)
+{
+    const int maxRetries = 3;
+    
+    for (int i = 0; i < maxRetries; i++)
+    {
+        try
+        {
+            var cached = await GetAsync<T>(key);
+            if (cached != null)
+            {
+                return cached;
+            }
+            
+            var value = await factory();
+            await SetAsync(key, value, expiry);
+            return value;
+        }
+        catch (Exception ex) when (i < maxRetries - 1)
+        {
+            _logger.LogWarning(ex, "缓存操作失败，重试 {RetryCount}/{MaxRetries}, Key: {Key}", 
+                i + 1, maxRetries, key);
+            await Task.Delay(TimeSpan.FromMilliseconds(100 * (i + 1))); // 指数退避
+        }
+    }
+    
+    // 所有重试都失败，直接调用工厂方法
+    _logger.LogError("缓存操作最终失败，直接调用工厂方法, Key: {Key}", key);
+    return await factory();
+}
+```
+
+## 缓存配置
+
+### Redis 连接配置
+```csharp
+// 在 Program.cs 中配置 Redis
+builder.Services.AddStackExchangeRedisCache(options =>
+{
+    options.Configuration = builder.Configuration.GetConnectionString("Redis");
+    options.InstanceName = "LLXServer";
+});
+
+// 注册缓存服务
+builder.Services.AddScoped<ICacheService, RedisCacheService>();
+```
+
+### 缓存配置选项
+```csharp
+// 在 appsettings.json 中配置缓存选项
+{
+  "Cache": {
+    "Redis": {
+      "ConnectionString": "localhost:6379",
+      "InstanceName": "LLXServer",
+      "DefaultExpiry": "00:30:00"
+    },
+    "Strategy": {
+      "OrderExpiry": "00:30:00",
+      "ProductExpiry": "01:00:00",
+      "AddressExpiry": "02:00:00",
+      "ShippingExpiry": "06:00:00"
+    }
+  }
+}
+```
+
+## 最佳实践总结
+
+### 1. 缓存键设计
+- ✅ 使用统一的前缀（如 `llxrice:`）
+- ✅ 包含版本信息（如 `v1:`）
+- ✅ 使用有意义的命名
+- ✅ 避免键冲突
+
+### 2. 过期时间设置
+- ✅ 根据数据更新频率设置过期时间
+- ✅ 热点数据使用较长的过期时间
+- ✅ 频繁更新的数据使用较短的过期时间
+
+### 3. 缓存更新策略
+- ✅ 更新时立即清除相关缓存
+- ✅ 使用模式匹配清除批量缓存
+- ✅ 考虑缓存一致性问题
+
+### 4. 异常处理
+- ✅ 缓存失败时降级到数据库
+- ✅ 记录缓存异常日志
+- ✅ 实现重试机制
+
+### 5. 性能监控
+- ✅ 监控缓存命中率
+- ✅ 监控缓存响应时间
+- ✅ 监控内存使用情况

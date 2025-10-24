@@ -1,0 +1,613 @@
+---
+globs: *Middleware.cs,*Service.cs,appsettings*.json
+description: 安全最佳实践和配置
+---
+
+# 安全最佳实践和配置
+
+## 安全架构
+
+### 安全中间件
+参考 [Middleware/ExceptionMiddleware.cs](mdc:LLX.Server/Middleware/ExceptionMiddleware.cs) 和 [Middleware/LoggingMiddleware.cs](mdc:LLX.Server/Middleware/LoggingMiddleware.cs)：
+
+```csharp
+// ✅ 正确 - 全局异常处理中间件
+public class ExceptionMiddleware
+{
+    private readonly RequestDelegate _next;
+    private readonly ILogger<ExceptionMiddleware> _logger;
+
+    public ExceptionMiddleware(RequestDelegate next, ILogger<ExceptionMiddleware> logger)
+    {
+        _next = next;
+        _logger = logger;
+    }
+
+    public async Task InvokeAsync(HttpContext context)
+    {
+        try
+        {
+            await _next(context);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "未处理的异常: {RequestPath}", context.Request.Path);
+            await HandleExceptionAsync(context, ex);
+        }
+    }
+
+    private static async Task HandleExceptionAsync(HttpContext context, Exception exception)
+    {
+        context.Response.ContentType = "application/json";
+        
+        var response = exception switch
+        {
+            ArgumentException => new ApiResponse<object>
+            {
+                Success = false,
+                ErrorCode = "INVALID_INPUT",
+                Message = "输入参数无效"
+            },
+            UnauthorizedAccessException => new ApiResponse<object>
+            {
+                Success = false,
+                ErrorCode = "UNAUTHORIZED",
+                Message = "未授权访问"
+            },
+            _ => new ApiResponse<object>
+            {
+                Success = false,
+                ErrorCode = "INTERNAL_ERROR",
+                Message = "系统内部错误"
+            }
+        };
+
+        context.Response.StatusCode = response.ErrorCode switch
+        {
+            "INVALID_INPUT" => 400,
+            "UNAUTHORIZED" => 401,
+            "FORBIDDEN" => 403,
+            "NOT_FOUND" => 404,
+            _ => 500
+        };
+
+        var jsonResponse = JsonSerializer.Serialize(response);
+        await context.Response.WriteAsync(jsonResponse);
+    }
+}
+```
+
+## 输入验证和清理
+
+### 请求验证
+```csharp
+// ✅ 正确 - 在服务层进行输入验证
+public class OrderService : IOrderService
+{
+    private void ValidateCreateOrder(CreateOrderDto createDto)
+    {
+        if (createDto == null)
+            throw new ArgumentNullException(nameof(createDto));
+        
+        if (createDto.AddressId <= 0)
+            throw new ArgumentException("地址ID必须大于0", nameof(createDto.AddressId));
+        
+        if (createDto.Items == null || !createDto.Items.Any())
+            throw new ArgumentException("订单明细不能为空", nameof(createDto.Items));
+        
+        // 验证每个订单明细
+        foreach (var item in createDto.Items)
+        {
+            if (item.ProductId <= 0)
+                throw new ArgumentException("商品ID必须大于0");
+            
+            if (item.Quantity <= 0)
+                throw new ArgumentException("商品数量必须大于0");
+        }
+        
+        // 验证状态值
+        var validStatuses = new[] { "待发货", "已发货", "已完成", "已取消" };
+        if (!validStatuses.Contains(createDto.Status))
+            throw new ArgumentException($"无效的订单状态: {createDto.Status}");
+    }
+}
+```
+
+### SQL 注入防护
+```csharp
+// ✅ 正确 - 使用参数化查询防止 SQL 注入
+public async Task<List<Order>> GetOrdersByStatusAsync(string status)
+{
+    // EF Core 自动使用参数化查询
+    return await _context.Orders
+        .Where(o => o.Status == status) // 安全：自动参数化
+        .ToListAsync();
+}
+
+// ❌ 错误 - 字符串拼接容易导致 SQL 注入
+public async Task<List<Order>> GetOrdersByStatusUnsafeAsync(string status)
+{
+    // 危险：直接字符串拼接
+    var sql = $"SELECT * FROM Orders WHERE Status = '{status}'";
+    return await _context.Orders.FromSqlRaw(sql).ToListAsync();
+}
+```
+
+### XSS 防护
+```csharp
+// ✅ 正确 - 输出编码防止 XSS
+public class XssProtectionMiddleware
+{
+    private readonly RequestDelegate _next;
+
+    public XssProtectionMiddleware(RequestDelegate next)
+    {
+        _next = next;
+    }
+
+    public async Task InvokeAsync(HttpContext context)
+    {
+        // 设置安全头
+        context.Response.Headers.Add("X-Content-Type-Options", "nosniff");
+        context.Response.Headers.Add("X-Frame-Options", "DENY");
+        context.Response.Headers.Add("X-XSS-Protection", "1; mode=block");
+        context.Response.Headers.Add("Referrer-Policy", "strict-origin-when-cross-origin");
+        
+        await _next(context);
+    }
+}
+
+// 在 Program.cs 中注册
+app.UseMiddleware<XssProtectionMiddleware>();
+```
+
+## 身份验证和授权
+
+### JWT 配置
+```csharp
+// ✅ 正确 - JWT 配置
+public static class SecurityExtensions
+{
+    public static IServiceCollection AddJwtAuthentication(this IServiceCollection services, IConfiguration configuration)
+    {
+        var jwtSettings = configuration.GetSection("JwtSettings");
+        var secretKey = jwtSettings["SecretKey"];
+        
+        services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+            .AddJwtBearer(options =>
+            {
+                options.TokenValidationParameters = new TokenValidationParameters
+                {
+                    ValidateIssuer = true,
+                    ValidateAudience = true,
+                    ValidateLifetime = true,
+                    ValidateIssuerSigningKey = true,
+                    ValidIssuer = jwtSettings["Issuer"],
+                    ValidAudience = jwtSettings["Audience"],
+                    IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secretKey)),
+                    ClockSkew = TimeSpan.Zero // 禁用时钟偏移
+                };
+            });
+        
+        return services;
+    }
+}
+```
+
+### 授权策略
+```csharp
+// ✅ 正确 - 授权策略配置
+public static class AuthorizationExtensions
+{
+    public static IServiceCollection AddAuthorizationPolicies(this IServiceCollection services)
+    {
+        services.AddAuthorization(options =>
+        {
+            options.AddPolicy("OrderRead", policy =>
+                policy.RequireClaim("permission", "order:read"));
+            
+            options.AddPolicy("OrderWrite", policy =>
+                policy.RequireClaim("permission", "order:write"));
+            
+            options.AddPolicy("AdminOnly", policy =>
+                policy.RequireRole("Admin"));
+        });
+        
+        return services;
+    }
+}
+
+// 在端点中使用
+app.MapGet("/api/orders", GetOrders)
+    .RequireAuthorization("OrderRead");
+
+app.MapPost("/api/orders", CreateOrder)
+    .RequireAuthorization("OrderWrite");
+```
+
+## 数据加密
+
+### 配置加密
+参考 [Services/ConfigurationEncryptionService.cs](mdc:LLX.Server/Services/ConfigurationEncryptionService.cs)：
+
+```csharp
+// ✅ 正确 - 配置加密服务
+public class ConfigurationEncryptionService : IConfigurationEncryptionService
+{
+    private readonly byte[] _key;
+    private readonly byte[] _iv;
+
+    public ConfigurationEncryptionService(IConfiguration configuration)
+    {
+        var encryptionKey = configuration["Encryption:Key"];
+        if (string.IsNullOrEmpty(encryptionKey))
+            throw new InvalidOperationException("加密密钥未配置");
+        
+        _key = Encoding.UTF8.GetBytes(encryptionKey.PadRight(32).Substring(0, 32));
+        _iv = Encoding.UTF8.GetBytes(encryptionKey.PadRight(16).Substring(0, 16));
+    }
+
+    public string Encrypt(string plainText)
+    {
+        if (string.IsNullOrEmpty(plainText))
+            return string.Empty;
+
+        using var aes = Aes.Create();
+        aes.Key = _key;
+        aes.IV = _iv;
+        aes.Mode = CipherMode.CBC;
+        aes.Padding = PaddingMode.PKCS7;
+
+        using var encryptor = aes.CreateEncryptor();
+        using var msEncrypt = new MemoryStream();
+        using var csEncrypt = new CryptoStream(msEncrypt, encryptor, CryptoStreamMode.Write);
+        using var swEncrypt = new StreamWriter(csEncrypt);
+        
+        swEncrypt.Write(plainText);
+        swEncrypt.Close();
+        
+        return Convert.ToBase64String(msEncrypt.ToArray());
+    }
+
+    public string Decrypt(string encryptedText)
+    {
+        if (string.IsNullOrEmpty(encryptedText))
+            return string.Empty;
+
+        try
+        {
+            using var aes = Aes.Create();
+            aes.Key = _key;
+            aes.IV = _iv;
+            aes.Mode = CipherMode.CBC;
+            aes.Padding = PaddingMode.PKCS7;
+
+            using var decryptor = aes.CreateDecryptor();
+            using var msDecrypt = new MemoryStream(Convert.FromBase64String(encryptedText));
+            using var csDecrypt = new CryptoStream(msDecrypt, decryptor, CryptoStreamMode.Read);
+            using var srDecrypt = new StreamReader(csDecrypt);
+            
+            return srDecrypt.ReadToEnd();
+        }
+        catch
+        {
+            throw new InvalidOperationException("解密失败，请检查加密文本格式");
+        }
+    }
+}
+```
+
+### 敏感数据保护
+```csharp
+// ✅ 正确 - 敏感数据保护
+public class SensitiveDataProtectionService
+{
+    private readonly IDataProtector _protector;
+
+    public SensitiveDataProtectionService(IDataProtectionProvider provider)
+    {
+        _protector = provider.CreateProtector("LLX.Server.SensitiveData");
+    }
+
+    public string Protect(string plainText)
+    {
+        return _protector.Protect(plainText);
+    }
+
+    public string Unprotect(string protectedText)
+    {
+        return _protector.Unprotect(protectedText);
+    }
+}
+
+// 在 Program.cs 中注册
+builder.Services.AddDataProtection();
+builder.Services.AddScoped<SensitiveDataProtectionService>();
+```
+
+## 安全配置
+
+### 安全头配置
+```csharp
+// ✅ 正确 - 安全头配置
+public static class SecurityHeadersExtensions
+{
+    public static IApplicationBuilder UseSecurityHeaders(this IApplicationBuilder app)
+    {
+        app.Use(async (context, next) =>
+        {
+            // 安全头
+            context.Response.Headers.Add("X-Content-Type-Options", "nosniff");
+            context.Response.Headers.Add("X-Frame-Options", "DENY");
+            context.Response.Headers.Add("X-XSS-Protection", "1; mode=block");
+            context.Response.Headers.Add("Referrer-Policy", "strict-origin-when-cross-origin");
+            context.Response.Headers.Add("Content-Security-Policy", 
+                "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'");
+            
+            // HSTS (仅在 HTTPS 下启用)
+            if (context.Request.IsHttps)
+            {
+                context.Response.Headers.Add("Strict-Transport-Security", 
+                    "max-age=31536000; includeSubDomains");
+            }
+            
+            await next();
+        });
+        
+        return app;
+    }
+}
+```
+
+### CORS 配置
+```csharp
+// ✅ 正确 - CORS 安全配置
+public static class CorsExtensions
+{
+    public static IServiceCollection AddSecureCors(this IServiceCollection services, IConfiguration configuration)
+    {
+        var allowedOrigins = configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? new[] { "http://localhost:3000" };
+        
+        services.AddCors(options =>
+        {
+            options.AddPolicy("SecurePolicy", policy =>
+            {
+                policy.WithOrigins(allowedOrigins)
+                    .AllowAnyMethod()
+                    .AllowAnyHeader()
+                    .AllowCredentials()
+                    .SetPreflightMaxAge(TimeSpan.FromMinutes(10));
+            });
+        });
+        
+        return services;
+    }
+}
+
+// 在 Program.cs 中使用
+app.UseCors("SecurePolicy");
+```
+
+## 日志安全
+
+### 敏感信息过滤
+```csharp
+// ✅ 正确 - 敏感信息过滤
+public class SecureLoggingMiddleware
+{
+    private readonly RequestDelegate _next;
+    private readonly ILogger<SecureLoggingMiddleware> _logger;
+
+    public SecureLoggingMiddleware(RequestDelegate next, ILogger<SecureLoggingMiddleware> logger)
+    {
+        _next = next;
+        _logger = logger;
+    }
+
+    public async Task InvokeAsync(HttpContext context)
+    {
+        var requestBody = await ReadRequestBodyAsync(context.Request);
+        var sanitizedBody = SanitizeSensitiveData(requestBody);
+        
+        _logger.LogInformation("请求: {Method} {Path} Body: {Body}", 
+            context.Request.Method, 
+            context.Request.Path, 
+            sanitizedBody);
+        
+        await _next(context);
+    }
+
+    private static string SanitizeSensitiveData(string input)
+    {
+        if (string.IsNullOrEmpty(input))
+            return input;
+        
+        // 移除或替换敏感信息
+        var patterns = new Dictionary<string, string>
+        {
+            { @"""password"":\s*""[^""]*""", @"""password"":""***""" },
+            { @"""token"":\s*""[^""]*""", @"""token"":""***""" },
+            { @"""secret"":\s*""[^""]*""", @"""secret"":""***""" },
+            { @"""key"":\s*""[^""]*""", @"""key"":""***""" }
+        };
+        
+        foreach (var pattern in patterns)
+        {
+            input = Regex.Replace(input, pattern.Key, pattern.Value, RegexOptions.IgnoreCase);
+        }
+        
+        return input;
+    }
+
+    private static async Task<string> ReadRequestBodyAsync(HttpRequest request)
+    {
+        request.EnableBuffering();
+        request.Body.Position = 0;
+        
+        using var reader = new StreamReader(request.Body, Encoding.UTF8, leaveOpen: true);
+        var body = await reader.ReadToEndAsync();
+        request.Body.Position = 0;
+        
+        return body;
+    }
+}
+```
+
+## 数据库安全
+
+### 连接字符串安全
+```csharp
+// ✅ 正确 - 安全的连接字符串配置
+public static class DatabaseSecurityExtensions
+{
+    public static IServiceCollection AddSecureDatabase(this IServiceCollection services, IConfiguration configuration)
+    {
+        var connectionString = configuration.GetConnectionString("DefaultConnection");
+        
+        // 验证连接字符串格式
+        if (string.IsNullOrEmpty(connectionString))
+            throw new InvalidOperationException("数据库连接字符串未配置");
+        
+        // 检查是否包含敏感信息
+        if (connectionString.Contains("Password=") && !connectionString.Contains("Password=***"))
+        {
+            throw new InvalidOperationException("连接字符串包含明文密码，请使用加密配置");
+        }
+        
+        services.AddDbContext<AppDbContext>(options =>
+        {
+            options.UseNpgsql(connectionString, npgsqlOptions =>
+            {
+                // 启用连接加密
+                npgsqlOptions.EnableRetryOnFailure(
+                    maxRetryCount: 3,
+                    maxRetryDelay: TimeSpan.FromSeconds(30),
+                    errorCodesToAdd: null);
+            });
+            
+            // 启用敏感数据日志记录（仅在开发环境）
+            if (Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") == "Development")
+            {
+                options.EnableSensitiveDataLogging();
+            }
+        });
+        
+        return services;
+    }
+}
+```
+
+### 数据库权限
+```sql
+-- ✅ 正确 - 最小权限原则
+-- 创建专用数据库用户
+CREATE USER llxrice_user WITH PASSWORD 'secure_password';
+
+-- 只授予必要的权限
+GRANT CONNECT ON DATABASE llxrice TO llxrice_user;
+GRANT USAGE ON SCHEMA public TO llxrice_user;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO llxrice_user;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO llxrice_user;
+
+-- 禁止危险操作
+REVOKE CREATE ON SCHEMA public FROM llxrice_user;
+REVOKE DROP ON SCHEMA public FROM llxrice_user;
+```
+
+## 安全配置示例
+
+### appsettings.json 安全配置
+```json
+{
+  "ConnectionStrings": {
+    "DefaultConnection": "Host=localhost;Database=llxrice;Username=llxrice_user;Password=***"
+  },
+  "JwtSettings": {
+    "SecretKey": "your-256-bit-secret-key-here",
+    "Issuer": "LLX.Server",
+    "Audience": "LLX.Client",
+    "ExpiryMinutes": 60
+  },
+  "Encryption": {
+    "Key": "your-32-character-encryption-key"
+  },
+  "Cors": {
+    "AllowedOrigins": [
+      "https://yourdomain.com",
+      "https://www.yourdomain.com"
+    ]
+  },
+  "Security": {
+    "RequireHttps": true,
+    "MaxRequestSize": 10485760,
+    "RateLimiting": {
+      "Enabled": true,
+      "RequestsPerMinute": 100
+    }
+  }
+}
+```
+
+### 生产环境安全配置
+```json
+{
+  "Logging": {
+    "LogLevel": {
+      "Default": "Warning",
+      "LLX.Server": "Information"
+    }
+  },
+  "Security": {
+    "RequireHttps": true,
+    "EnableDetailedErrors": false,
+    "EnableSensitiveDataLogging": false
+  },
+  "Database": {
+    "EnableRetryOnFailure": true,
+    "CommandTimeout": 30,
+    "MaxRetryCount": 3
+  }
+}
+```
+
+## 安全最佳实践总结
+
+### 1. 输入验证
+- ✅ 所有用户输入都要验证
+- ✅ 使用白名单验证而不是黑名单
+- ✅ 在服务层进行业务规则验证
+
+### 2. 输出编码
+- ✅ 所有输出都要编码
+- ✅ 使用适当的编码方式
+- ✅ 防止 XSS 攻击
+
+### 3. 身份验证
+- ✅ 使用强密码策略
+- ✅ 实现多因素认证
+- ✅ 定期轮换密钥
+
+### 4. 授权控制
+- ✅ 最小权限原则
+- ✅ 基于角色的访问控制
+- ✅ 细粒度权限控制
+
+### 5. 数据保护
+- ✅ 敏感数据加密存储
+- ✅ 传输过程加密
+- ✅ 定期备份和恢复测试
+
+### 6. 日志安全
+- ✅ 不记录敏感信息
+- ✅ 安全的日志存储
+- ✅ 日志访问控制
+
+### 7. 配置安全
+- ✅ 使用环境变量存储敏感配置
+- ✅ 配置文件权限控制
+- ✅ 定期审查配置
+
+### 8. 网络安全
+- ✅ 使用 HTTPS
+- ✅ 配置安全头
+- ✅ 限制 CORS 来源

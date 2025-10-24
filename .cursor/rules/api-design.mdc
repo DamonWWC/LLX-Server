@@ -1,0 +1,460 @@
+---
+globs: *Endpoints.cs
+description: Minimal API 设计模式和最佳实践
+---
+
+# Minimal API 设计模式和最佳实践
+
+## API 端点设计原则
+
+### 路由设计
+```csharp
+// ✅ 正确 - RESTful 路由设计
+app.MapGet("/api/orders/{id}", GetOrderById)
+app.MapPost("/api/orders", CreateOrder)
+app.MapPut("/api/orders/{id}", UpdateOrder)
+app.MapDelete("/api/orders/{id}", DeleteOrder)
+app.MapPost("/api/orders/batch/delete", DeleteOrders) // 批量操作使用 POST
+
+// ❌ 错误 - 非 RESTful 设计
+app.MapGet("/api/getOrder", GetOrderById)
+app.MapPost("/api/createOrder", CreateOrder)
+```
+
+### 端点组织
+参考 [Endpoints/OrderEndpoints.cs](mdc:LLX.Server/Endpoints/OrderEndpoints.cs) 的组织方式：
+
+```csharp
+public static class OrderEndpoints
+{
+    public static void MapOrderEndpoints(this IEndpointRouteBuilder app)
+    {
+        var group = app.MapGroup("/api/orders")
+            .WithTags("订单管理")
+            .WithOpenApi();
+
+        // 基础 CRUD 操作
+        group.MapGet("/{id}", GetOrderById)
+            .WithSummary("根据ID获取订单")
+            .WithDescription("通过订单ID获取订单详细信息");
+            
+        group.MapPost("/", CreateOrder)
+            .WithSummary("创建新订单")
+            .WithDescription("创建新的订单记录");
+            
+        // 业务操作
+        group.MapPut("/{id}/status", UpdateOrderStatus)
+            .WithSummary("更新订单状态")
+            .WithDescription("更新指定订单的状态");
+            
+        group.MapPost("/batch/delete", DeleteOrders)
+            .WithSummary("批量删除订单")
+            .WithDescription("批量删除多个订单");
+    }
+}
+```
+
+## 请求和响应设计
+
+### 统一响应格式
+使用 [Models/DTOs/ApiResponse.cs](mdc:LLX.Server/Models/DTOs/ApiResponse.cs) 统一响应格式：
+
+```csharp
+// ✅ 正确 - 统一响应格式
+public class ApiResponse<T>
+{
+    public bool Success { get; set; }
+    public T? Data { get; set; }
+    public string? Message { get; set; }
+    public string? ErrorCode { get; set; }
+    public DateTime Timestamp { get; set; } = DateTime.UtcNow;
+}
+
+// 成功响应
+return Results.Ok(ApiResponse<OrderDto>.Success(order));
+
+// 错误响应
+return Results.BadRequest(ApiResponse<object>.Error("INVALID_INPUT", "输入参数无效"));
+```
+
+### 请求验证
+```csharp
+// ✅ 正确 - 使用 DTO 进行请求验证
+public class CreateOrderDto
+{
+    public int AddressId { get; set; }
+    public List<CreateOrderItemDto> Items { get; set; } = new();
+    public string PaymentStatus { get; set; } = "未付款";
+    public string Status { get; set; } = "待发货";
+}
+
+// 端点实现
+private static async Task<IResult> CreateOrder(
+    CreateOrderDto createDto, 
+    IOrderService orderService)
+{
+    var result = await orderService.CreateOrderAsync(createDto);
+    
+    if (!result.Success)
+    {
+        return result.ErrorCode switch
+        {
+            "INVALID_INPUT" => Results.BadRequest(result),
+            "ADDRESS_NOT_FOUND" => Results.NotFound(result),
+            _ => Results.BadRequest(result)
+        };
+    }
+    
+    return Results.Created($"/api/orders/{result.Data!.Id}", result);
+}
+```
+
+## 错误处理模式
+
+### HTTP 状态码映射
+```csharp
+// ✅ 正确 - 根据错误类型返回合适的 HTTP 状态码
+private static async Task<IResult> GetOrderById(
+    int id, 
+    IOrderService orderService)
+{
+    var result = await orderService.GetOrderByIdAsync(id);
+    
+    if (!result.Success)
+    {
+        return result.ErrorCode switch
+        {
+            "ORDER_NOT_FOUND" => Results.NotFound(result),
+            "INVALID_ID" => Results.BadRequest(result),
+            "INTERNAL_ERROR" => Results.StatusCode(500, result),
+            _ => Results.BadRequest(result)
+        };
+    }
+    
+    return Results.Ok(result);
+}
+```
+
+### 错误码定义
+```csharp
+// 在服务层定义标准错误码
+public static class ErrorCodes
+{
+    // 订单相关错误
+    public const string ORDER_NOT_FOUND = "ORDER_NOT_FOUND";
+    public const string INVALID_ORDER_STATUS = "INVALID_ORDER_STATUS";
+    public const string ORDER_ALREADY_EXISTS = "ORDER_ALREADY_EXISTS";
+    
+    // 商品相关错误
+    public const string PRODUCT_NOT_FOUND = "PRODUCT_NOT_FOUND";
+    public const string INSUFFICIENT_STOCK = "INSUFFICIENT_STOCK";
+    
+    // 地址相关错误
+    public const string ADDRESS_NOT_FOUND = "ADDRESS_NOT_FOUND";
+    public const string INVALID_ADDRESS = "INVALID_ADDRESS";
+    
+    // 通用错误
+    public const string INVALID_INPUT = "INVALID_INPUT";
+    public const string INTERNAL_ERROR = "INTERNAL_ERROR";
+}
+```
+
+## 参数绑定模式
+
+### 路径参数
+```csharp
+// ✅ 正确 - 路径参数绑定
+private static async Task<IResult> GetOrderById(
+    int id, // 自动从路径绑定
+    IOrderService orderService)
+{
+    // 实现
+}
+
+// 端点注册
+group.MapGet("/{id}", GetOrderById)
+    .WithName("GetOrderById");
+```
+
+### 查询参数
+```csharp
+// ✅ 正确 - 查询参数绑定
+private static async Task<IResult> GetOrders(
+    int pageNumber = 1,
+    int pageSize = 10,
+    string? searchTerm = null,
+    string? status = null,
+    IOrderService orderService = null!)
+{
+    var result = await orderService.GetOrdersPagedAsync(
+        pageNumber, pageSize, searchTerm, status);
+    return Results.Ok(result);
+}
+
+// 端点注册
+group.MapGet("/", GetOrders)
+    .WithSummary("获取订单列表")
+    .WithDescription("支持分页、搜索和状态筛选");
+```
+
+### 请求体参数
+```csharp
+// ✅ 正确 - 请求体参数绑定
+private static async Task<IResult> CreateOrder(
+    [FromBody] CreateOrderDto createDto, // 显式指定 FromBody
+    IOrderService orderService)
+{
+    var result = await orderService.CreateOrderAsync(createDto);
+    return result.Success 
+        ? Results.Created($"/api/orders/{result.Data!.Id}", result)
+        : Results.BadRequest(result);
+}
+
+// 端点注册
+group.MapPost("/", CreateOrder)
+    .Accepts<CreateOrderDto>("application/json")
+    .Produces<ApiResponse<OrderDto>>(201)
+    .Produces<ApiResponse<object>>(400);
+```
+
+## 文档和元数据
+
+### OpenAPI 文档
+```csharp
+// ✅ 正确 - 完整的 OpenAPI 元数据
+group.MapPost("/", CreateOrder)
+    .WithTags("订单管理")
+    .WithSummary("创建新订单")
+    .WithDescription("创建新的订单记录，包含订单明细信息")
+    .Accepts<CreateOrderDto>("application/json")
+    .Produces<ApiResponse<OrderDto>>(201, "application/json")
+    .Produces<ApiResponse<object>>(400, "application/json")
+    .Produces<ApiResponse<object>>(500, "application/json")
+    .WithOpenApi(operation => new(operation)
+    {
+        Summary = "创建新订单",
+        Description = "创建新的订单记录，包含订单明细信息"
+    });
+```
+
+### 响应示例
+```csharp
+// ✅ 正确 - 提供响应示例
+group.MapGet("/{id}", GetOrderById)
+    .WithSummary("根据ID获取订单")
+    .Produces<ApiResponse<OrderDto>>(200)
+    .Produces<ApiResponse<object>>(404)
+    .WithOpenApi(operation => new(operation)
+    {
+        Summary = "根据ID获取订单",
+        Description = "通过订单ID获取订单详细信息",
+        Responses = new OpenApiResponses
+        {
+            ["200"] = new OpenApiResponse
+            {
+                Description = "成功获取订单信息",
+                Content = new Dictionary<string, OpenApiMediaType>
+                {
+                    ["application/json"] = new OpenApiMediaType
+                    {
+                        Example = OpenApiAnyFactory.CreateFromJson("""
+                        {
+                            "success": true,
+                            "data": {
+                                "id": 1,
+                                "orderNo": "ORD202401010001",
+                                "status": "待发货",
+                                "paymentStatus": "已付款"
+                            },
+                            "message": null,
+                            "errorCode": null,
+                            "timestamp": "2024-01-01T00:00:00Z"
+                        }
+                        """)
+                    }
+                }
+            }
+        }
+    });
+```
+
+## 性能优化
+
+### 异步处理
+```csharp
+// ✅ 正确 - 所有端点都使用异步
+private static async Task<IResult> GetOrderById(
+    int id, 
+    IOrderService orderService)
+{
+    var result = await orderService.GetOrderByIdAsync(id);
+    return Results.Ok(result);
+}
+
+// ❌ 错误 - 同步处理
+private static IResult GetOrderById(
+    int id, 
+    IOrderService orderService)
+{
+    var result = orderService.GetOrderByIdAsync(id).Result; // 阻塞调用
+    return Results.Ok(result);
+}
+```
+
+### 缓存集成
+```csharp
+// ✅ 正确 - 在端点层集成缓存
+private static async Task<IResult> GetOrderById(
+    int id, 
+    IOrderService orderService,
+    IMemoryCache cache)
+{
+    var cacheKey = $"order:{id}";
+    
+    if (cache.TryGetValue(cacheKey, out OrderDto? cachedOrder))
+    {
+        return Results.Ok(ApiResponse<OrderDto>.Success(cachedOrder!));
+    }
+    
+    var result = await orderService.GetOrderByIdAsync(id);
+    
+    if (result.Success && result.Data != null)
+    {
+        cache.Set(cacheKey, result.Data, TimeSpan.FromMinutes(30));
+    }
+    
+    return Results.Ok(result);
+}
+```
+
+## 安全考虑
+
+### 输入验证
+```csharp
+// ✅ 正确 - 在端点层进行基础验证
+private static async Task<IResult> GetOrderById(
+    int id, 
+    IOrderService orderService)
+{
+    if (id <= 0)
+    {
+        return Results.BadRequest(ApiResponse<object>.Error(
+            "INVALID_ID", "订单ID必须大于0"));
+    }
+    
+    var result = await orderService.GetOrderByIdAsync(id);
+    return Results.Ok(result);
+}
+```
+
+### 授权检查
+```csharp
+// ✅ 正确 - 添加授权要求
+group.MapGet("/{id}", GetOrderById)
+    .RequireAuthorization() // 需要授权
+    .WithSummary("根据ID获取订单");
+
+group.MapPost("/", CreateOrder)
+    .RequireAuthorization("OrderCreate") // 特定权限
+    .WithSummary("创建新订单");
+```
+
+## 测试友好设计
+
+### 依赖注入
+```csharp
+// ✅ 正确 - 通过参数注入依赖
+private static async Task<IResult> CreateOrder(
+    CreateOrderDto createDto,
+    IOrderService orderService, // 自动注入
+    ILogger<OrderEndpoints> logger) // 自动注入
+{
+    logger.LogInformation("创建订单请求，地址ID: {AddressId}", createDto.AddressId);
+    
+    var result = await orderService.CreateOrderAsync(createDto);
+    return Results.Ok(result);
+}
+```
+
+### 可测试性
+```csharp
+// ✅ 正确 - 端点方法应该是静态的，便于测试
+public static class OrderEndpoints
+{
+    public static void MapOrderEndpoints(this IEndpointRouteBuilder app)
+    {
+        // 端点注册
+    }
+    
+    // 静态方法便于单元测试
+    private static async Task<IResult> GetOrderById(
+        int id, 
+        IOrderService orderService)
+    {
+        // 实现
+    }
+}
+```
+
+## 版本控制
+
+### API 版本控制
+```csharp
+// ✅ 正确 - 使用版本前缀
+public static void MapOrderEndpoints(this IEndpointRouteBuilder app)
+{
+    var group = app.MapGroup("/api/v1/orders") // 版本控制
+        .WithTags("订单管理 v1")
+        .WithOpenApi();
+    
+    // 端点实现
+}
+
+// 未来版本
+public static void MapOrderEndpointsV2(this IEndpointRouteBuilder app)
+{
+    var group = app.MapGroup("/api/v2/orders")
+        .WithTags("订单管理 v2")
+        .WithOpenApi();
+    
+    // 新版本端点
+}
+```
+
+## 监控和日志
+
+### 请求日志
+```csharp
+// ✅ 正确 - 记录请求日志
+private static async Task<IResult> CreateOrder(
+    CreateOrderDto createDto,
+    IOrderService orderService,
+    ILogger<OrderEndpoints> logger)
+{
+    logger.LogInformation("创建订单请求开始，地址ID: {AddressId}, 明细数量: {ItemCount}", 
+        createDto.AddressId, createDto.Items.Count);
+    
+    try
+    {
+        var result = await orderService.CreateOrderAsync(createDto);
+        
+        if (result.Success)
+        {
+            logger.LogInformation("创建订单成功，订单ID: {OrderId}", result.Data!.Id);
+        }
+        else
+        {
+            logger.LogWarning("创建订单失败，错误码: {ErrorCode}, 错误信息: {ErrorMessage}", 
+                result.ErrorCode, result.Message);
+        }
+        
+        return Results.Ok(result);
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "创建订单异常，地址ID: {AddressId}", createDto.AddressId);
+        return Results.StatusCode(500, ApiResponse<object>.Error(
+            "INTERNAL_ERROR", "系统内部错误"));
+    }
+}
+```

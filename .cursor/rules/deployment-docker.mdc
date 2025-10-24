@@ -1,0 +1,549 @@
+---
+globs: Dockerfile,docker-compose.yml,*.sh,*.ps1
+description: Docker 部署和容器化最佳实践
+---
+
+# Docker 部署和容器化最佳实践
+
+## 项目部署架构
+
+### 部署模式
+项目支持两种部署模式：
+1. **完整部署** - 包含 API 服务、PostgreSQL、Redis
+2. **API 仅部署** - 只部署 API 服务，使用外部数据库
+
+### 核心文件
+- [Dockerfile](mdc:LLX.Server/Dockerfile) - API 服务容器镜像
+- [doc/docker-compose.yml](mdc:doc/docker-compose.yml) - 完整服务编排
+- [doc/env.example](mdc:doc/env.example) - 环境变量配置模板
+
+## Dockerfile 最佳实践
+
+### 多阶段构建
+```dockerfile
+# ✅ 正确 - 使用多阶段构建优化镜像大小
+FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS base
+WORKDIR /app
+EXPOSE 8080
+EXPOSE 8081
+
+FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
+WORKDIR /src
+COPY ["LLX.Server.csproj", "."]
+RUN dotnet restore "./LLX.Server.csproj"
+COPY . .
+WORKDIR "/src/."
+RUN dotnet build "LLX.Server.csproj" -c Release -o /app/build
+
+FROM build AS publish
+RUN dotnet publish "LLX.Server.csproj" -c Release -o /app/publish
+
+FROM base AS final
+WORKDIR /app
+COPY --from=publish /app/publish .
+
+# 创建非 root 用户
+RUN adduser --disabled-password --gecos '' appuser && chown -R appuser /app
+USER appuser
+
+ENTRYPOINT ["dotnet", "LLX.Server.dll"]
+```
+
+### 安全最佳实践
+```dockerfile
+# ✅ 正确 - 安全配置
+FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS base
+
+# 设置非特权用户
+RUN groupadd -r appuser && useradd -r -g appuser appuser
+
+# 创建应用目录并设置权限
+WORKDIR /app
+RUN chown -R appuser:appuser /app
+
+# 切换到非 root 用户
+USER appuser
+
+# 健康检查
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8080/health || exit 1
+
+EXPOSE 8080
+ENTRYPOINT ["dotnet", "LLX.Server.dll"]
+```
+
+## Docker Compose 配置
+
+### 完整服务编排
+```yaml
+# ✅ 正确 - 完整的服务编排
+version: '3.8'
+
+services:
+  api:
+    build:
+      context: ../LLX.Server
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ConnectionStrings__DefaultConnection=${DATABASE_CONNECTION_STRING}
+      - Redis__ConnectionString=${REDIS_CONNECTION_STRING}
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - llx-network
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - llX-network
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - llx-network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  llx-network:
+    driver: bridge
+```
+
+### API 仅部署配置
+```yaml
+# ✅ 正确 - API 仅部署配置
+version: '3.8'
+
+services:
+  api:
+    build:
+      context: ../LLX.Server
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ConnectionStrings__DefaultConnection=${DATABASE_CONNECTION_STRING}
+      - Redis__ConnectionString=${REDIS_CONNECTION_STRING}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"  # 连接宿主机服务
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+```
+
+## 环境变量配置
+
+### 环境变量文件
+```bash
+# ✅ 正确 - .env 文件配置
+# 数据库配置
+DATABASE_CONNECTION_STRING=Host=postgres;Database=llxrice;Username=llxrice_user;Password=llxrice_password
+DATABASE_PROVIDER=PostgreSQL
+
+# Redis 配置
+REDIS_CONNECTION_STRING=redis:6379
+
+# 应用配置
+ASPNETCORE_ENVIRONMENT=Production
+ASPNETCORE_URLS=http://+:8080
+
+# 日志配置
+LOG_LEVEL=Information
+LOG_FILE_PATH=/app/logs
+
+# 安全配置
+JWT_SECRET_KEY=your-secret-key-here
+ENCRYPTION_KEY=your-encryption-key-here
+```
+
+### 配置优先级
+```csharp
+// ✅ 正确 - 在 Program.cs 中配置环境变量优先级
+var builder = WebApplication.CreateBuilder(args);
+
+// 环境变量优先级：命令行 > 环境变量 > appsettings.{Environment}.json > appsettings.json
+builder.Configuration
+    .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
+    .AddJsonFile($"appsettings.{builder.Environment.EnvironmentName}.json", optional: true)
+    .AddEnvironmentVariables()
+    .AddCommandLine(args);
+```
+
+## 部署脚本
+
+### Linux 部署脚本
+```bash
+#!/bin/bash
+# ✅ 正确 - Linux 部署脚本
+
+set -e
+
+# 颜色输出
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color
+
+echo -e "${GREEN}开始部署 LLX.Server API 服务...${NC}"
+
+# 检查 Docker 是否安装
+if ! command -v docker &> /dev/null; then
+    echo -e "${RED}错误: Docker 未安装${NC}"
+    exit 1
+fi
+
+if ! command -v docker-compose &> /dev/null; then
+    echo -e "${RED}错误: Docker Compose 未安装${NC}"
+    exit 1
+fi
+
+# 检查环境变量文件
+if [ ! -f ".env" ]; then
+    echo -e "${YELLOW}警告: .env 文件不存在，使用默认配置${NC}"
+    cp env.example .env
+fi
+
+# 停止现有容器
+echo -e "${YELLOW}停止现有容器...${NC}"
+docker-compose down
+
+# 构建新镜像
+echo -e "${YELLOW}构建新镜像...${NC}"
+docker-compose build --no-cache
+
+# 启动服务
+echo -e "${YELLOW}启动服务...${NC}"
+docker-compose up -d
+
+# 等待服务启动
+echo -e "${YELLOW}等待服务启动...${NC}"
+sleep 30
+
+# 健康检查
+echo -e "${YELLOW}执行健康检查...${NC}"
+if curl -f http://localhost:8080/health; then
+    echo -e "${GREEN}部署成功！服务运行在 http://localhost:8080${NC}"
+else
+    echo -e "${RED}健康检查失败${NC}"
+    docker-compose logs api
+    exit 1
+fi
+```
+
+### Windows 部署脚本
+```powershell
+# ✅ 正确 - Windows PowerShell 部署脚本
+
+param(
+    [string]$Environment = "Production"
+)
+
+Write-Host "开始部署 LLX.Server API 服务..." -ForegroundColor Green
+
+# 检查 Docker 是否安装
+try {
+    docker --version | Out-Null
+    docker-compose --version | Out-Null
+} catch {
+    Write-Host "错误: Docker 或 Docker Compose 未安装" -ForegroundColor Red
+    exit 1
+}
+
+# 检查环境变量文件
+if (-not (Test-Path ".env")) {
+    Write-Host "警告: .env 文件不存在，使用默认配置" -ForegroundColor Yellow
+    Copy-Item "env.example" ".env"
+}
+
+# 停止现有容器
+Write-Host "停止现有容器..." -ForegroundColor Yellow
+docker-compose down
+
+# 构建新镜像
+Write-Host "构建新镜像..." -ForegroundColor Yellow
+docker-compose build --no-cache
+
+# 启动服务
+Write-Host "启动服务..." -ForegroundColor Yellow
+docker-compose up -d
+
+# 等待服务启动
+Write-Host "等待服务启动..." -ForegroundColor Yellow
+Start-Sleep -Seconds 30
+
+# 健康检查
+Write-Host "执行健康检查..." -ForegroundColor Yellow
+try {
+    $response = Invoke-WebRequest -Uri "http://localhost:8080/health" -UseBasicParsing
+    if ($response.StatusCode -eq 200) {
+        Write-Host "部署成功！服务运行在 http://localhost:8080" -ForegroundColor Green
+    } else {
+        throw "健康检查失败"
+    }
+} catch {
+    Write-Host "健康检查失败" -ForegroundColor Red
+    docker-compose logs api
+    exit 1
+}
+```
+
+## 容器优化
+
+### 镜像大小优化
+```dockerfile
+# ✅ 正确 - 优化镜像大小
+FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS base
+WORKDIR /app
+
+# 使用 Alpine 基础镜像减小大小
+FROM mcr.microsoft.com/dotnet/aspnet:8.0-alpine AS base
+WORKDIR /app
+
+# 安装必要的包
+RUN apk add --no-cache curl
+
+# 多阶段构建
+FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
+WORKDIR /src
+
+# 只复制项目文件进行依赖还原
+COPY ["LLX.Server.csproj", "."]
+RUN dotnet restore "./LLX.Server.csproj"
+
+# 复制源代码
+COPY . .
+RUN dotnet build "LLX.Server.csproj" -c Release -o /app/build
+
+FROM build AS publish
+RUN dotnet publish "LLX.Server.csproj" -c Release -o /app/publish
+
+FROM base AS final
+WORKDIR /app
+COPY --from=publish /app/publish .
+
+# 创建非 root 用户
+RUN adduser -D -s /bin/sh appuser && chown -R appuser:appuser /app
+USER appuser
+
+ENTRYPOINT ["dotnet", "LLX.Server.dll"]
+```
+
+### 性能优化
+```dockerfile
+# ✅ 正确 - 性能优化配置
+FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS base
+WORKDIR /app
+
+# 设置环境变量优化性能
+ENV DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1
+ENV DOTNET_RUNNING_IN_CONTAINER=true
+ENV DOTNET_USE_POLLING_FILE_WATCHER=true
+
+# 设置 GC 优化
+ENV DOTNET_gcServer=1
+ENV DOTNET_gcConcurrent=1
+
+EXPOSE 8080
+ENTRYPOINT ["dotnet", "LLX.Server.dll"]
+```
+
+## 监控和日志
+
+### 健康检查
+```csharp
+// ✅ 正确 - 在 Program.cs 中配置健康检查
+builder.Services.AddHealthChecks()
+    .AddNpgSql(builder.Configuration.GetConnectionString("DefaultConnection")!)
+    .AddRedis(builder.Configuration.GetConnectionString("Redis")!)
+    .AddCheck<CustomHealthCheck>("custom");
+
+app.MapHealthChecks("/health", new HealthCheckOptions
+{
+    ResponseWriter = UIResponseWriter.WriteHealthCheckUIResponse
+});
+```
+
+### 日志配置
+```dockerfile
+# ✅ 正确 - 配置日志目录
+FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS base
+WORKDIR /app
+
+# 创建日志目录
+RUN mkdir -p /app/logs
+RUN chown -R appuser:appuser /app/logs
+
+# 挂载日志卷
+VOLUME ["/app/logs"]
+```
+
+### 容器监控
+```yaml
+# ✅ 正确 - Docker Compose 监控配置
+services:
+  api:
+    # ... 其他配置
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.25'
+```
+
+## 安全配置
+
+### 网络安全
+```yaml
+# ✅ 正确 - 网络安全配置
+services:
+  api:
+    # ... 其他配置
+    networks:
+      - llx-network
+    # 不暴露数据库端口到外部
+    expose:
+      - "8080"
+
+  postgres:
+    # ... 其他配置
+    networks:
+      - llx-network
+    # 不暴露端口到外部
+    # ports: []  # 注释掉端口映射
+
+networks:
+  llx-network:
+    driver: bridge
+    internal: false  # 允许外部访问
+```
+
+### 密钥管理
+```bash
+# ✅ 正确 - 使用 Docker Secrets
+echo "your-secret-key" | docker secret create jwt_secret -
+echo "your-encryption-key" | docker secret create encryption_key -
+
+# 在 docker-compose.yml 中使用
+services:
+  api:
+    secrets:
+      - jwt_secret
+      - encryption_key
+    environment:
+      - JWT_SECRET_FILE=/run/secrets/jwt_secret
+      - ENCRYPTION_KEY_FILE=/run/secrets/encryption_key
+
+secrets:
+  jwt_secret:
+    external: true
+  encryption_key:
+    external: true
+```
+
+## 部署最佳实践
+
+### 1. 环境隔离
+```bash
+# ✅ 正确 - 不同环境使用不同的配置文件
+# 开发环境
+docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
+
+# 生产环境
+docker-compose -f docker-compose.yml -f docker-compose.prod.yml up
+```
+
+### 2. 数据持久化
+```yaml
+# ✅ 正确 - 数据持久化配置
+services:
+  postgres:
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+
+  redis:
+    volumes:
+      - redis_data:/data
+      - ./redis.conf:/usr/local/etc/redis/redis.conf
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+```
+
+### 3. 滚动更新
+```bash
+# ✅ 正确 - 滚动更新脚本
+#!/bin/bash
+set -e
+
+echo "开始滚动更新..."
+
+# 拉取最新镜像
+docker-compose pull
+
+# 滚动更新服务
+docker-compose up -d --no-deps api
+
+# 等待服务启动
+sleep 30
+
+# 健康检查
+if curl -f http://localhost:8080/health; then
+    echo "滚动更新成功"
+else
+    echo "滚动更新失败，回滚..."
+    docker-compose down
+    docker-compose up -d
+    exit 1
+fi
+```
+
+### 4. 备份和恢复
+```bash
+# ✅ 正确 - 数据备份脚本
+#!/bin/bash
+
+# 备份数据库
+docker-compose exec postgres pg_dump -U llxrice_user llxrice > backup_$(date +%Y%m%d_%H%M%S).sql
+
+# 备份 Redis 数据
+docker-compose exec redis redis-cli BGSAVE
+docker cp $(docker-compose ps -q redis):/data/dump.rdb ./redis_backup_$(date +%Y%m%d_%H%M%S).rdb
+```

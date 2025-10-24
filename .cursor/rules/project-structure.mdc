@@ -1,0 +1,103 @@
+---
+alwaysApply: true
+description: LLX.Server 项目结构和架构指南
+---
+
+# LLX.Server 项目结构指南
+
+## 项目概述
+LLX.Server 是一个基于 .NET 8.0 和 EF Core 8.0 的现代化 Web API 项目，采用 Clean Architecture 和 Repository 模式。
+
+## 核心架构
+
+### 主要入口点
+- [Program.cs](mdc:LLX.Server/Program.cs) - 应用程序入口点，配置服务和中间件
+- [appsettings.json](mdc:LLX.Server/appsettings.json) - 主配置文件
+- [appsettings.Development.json](mdc:LLX.Server/appsettings.Development.json) - 开发环境配置
+
+### 数据层 (Data Layer)
+- [Data/AppDbContext.cs](mdc:LLX.Server/Data/AppDbContext.cs) - EF Core 数据库上下文
+- [Data/DatabaseProvider.cs](mdc:LLX.Server/Data/DatabaseProvider.cs) - 数据库提供程序配置
+
+### 实体模型 (Models/Entities)
+- [Models/Entities/Order.cs](mdc:LLX.Server/Models/Entities/Order.cs) - 订单实体
+- [Models/Entities/OrderItem.cs](mdc:LLX.Server/Models/Entities/OrderItem.cs) - 订单明细实体
+- [Models/Entities/Product.cs](mdc:LLX.Server/Models/Entities/Product.cs) - 商品实体
+- [Models/Entities/Address.cs](mdc:LLX.Server/Models/Entities/Address.cs) - 地址实体
+- [Models/Entities/ShippingRate.cs](mdc:LLX.Server/Models/Entities/ShippingRate.cs) - 运费实体
+
+### 数据传输对象 (DTOs)
+- [Models/DTOs/OrderDtos.cs](mdc:LLX.Server/Models/DTOs/OrderDtos.cs) - 订单相关 DTO
+- [Models/DTOs/ProductDtos.cs](mdc:LLX.Server/Models/DTOs/ProductDtos.cs) - 商品相关 DTO
+- [Models/DTOs/AddressDtos.cs](mdc:LLX.Server/Models/DTOs/AddressDtos.cs) - 地址相关 DTO
+- [Models/DTOs/ShippingDtos.cs](mdc:LLX.Server/Models/DTOs/ShippingDtos.cs) - 运费相关 DTO
+- [Models/DTOs/ApiResponse.cs](mdc:LLX.Server/Models/DTOs/ApiResponse.cs) - 统一 API 响应格式
+
+### 仓储层 (Repositories)
+- [Repositories/IOrderRepository.cs](mdc:LLX.Server/Repositories/IOrderRepository.cs) - 订单仓储接口
+- [Repositories/OrderRepository.cs](mdc:LLX.Server/Repositories/OrderRepository.cs) - 订单仓储实现
+- [Repositories/IOrderItemRepository.cs](mdc:LLX.Server/Repositories/IOrderItemRepository.cs) - 订单明细仓储接口
+- [Repositories/OrderItemRepository.cs](mdc:LLX.Server/Repositories/OrderItemRepository.cs) - 订单明细仓储实现
+- [Repositories/IProductRepository.cs](mdc:LLX.Server/Repositories/IProductRepository.cs) - 商品仓储接口
+- [Repositories/ProductRepository.cs](mdc:LLX.Server/Repositories/ProductRepository.cs) - 商品仓储实现
+- [Repositories/IAddressRepository.cs](mdc:LLX.Server/Repositories/IAddressRepository.cs) - 地址仓储接口
+- [Repositories/AddressRepository.cs](mdc:LLX.Server/Repositories/AddressRepository.cs) - 地址仓储实现
+- [Repositories/IShippingRepository.cs](mdc:LLX.Server/Repositories/IShippingRepository.cs) - 运费仓储接口
+- [Repositories/ShippingRepository.cs](mdc:LLX.Server/Repositories/ShippingRepository.cs) - 运费仓储实现
+
+### 服务层 (Services)
+- [Services/IOrderService.cs](mdc:LLX.Server/Services/IOrderService.cs) - 订单服务接口
+- [Services/OrderService.cs](mdc:LLX.Server/Services/OrderService.cs) - 订单服务实现
+- [Services/IProductService.cs](mdc:LLX.Server/Services/IProductService.cs) - 商品服务接口
+- [Services/ProductService.cs](mdc:LLX.Server/Services/ProductService.cs) - 商品服务实现
+- [Services/IAddressService.cs](mdc:LLX.Server/Services/IAddressService.cs) - 地址服务接口
+- [Services/AddressService.cs](mdc:LLX.Server/Services/AddressService.cs) - 地址服务实现
+- [Services/IShippingService.cs](mdc:LLX.Server/Services/IShippingService.cs) - 运费服务接口
+- [Services/ShippingService.cs](mdc:LLX.Server/Services/ShippingService.cs) - 运费服务实现
+- [Services/ICacheService.cs](mdc:LLX.Server/Services/ICacheService.cs) - 缓存服务接口
+- [Services/RedisCacheService.cs](mdc:LLX.Server/Services/RedisCacheService.cs) - Redis 缓存服务实现
+
+### API 端点 (Endpoints)
+- [Endpoints/OrderEndpoints.cs](mdc:LLX.Server/Endpoints/OrderEndpoints.cs) - 订单相关 API 端点
+- [Endpoints/ProductEndpoints.cs](mdc:LLX.Server/Endpoints/ProductEndpoints.cs) - 商品相关 API 端点
+- [Endpoints/AddressEndpoints.cs](mdc:LLX.Server/Endpoints/AddressEndpoints.cs) - 地址相关 API 端点
+- [Endpoints/ShippingEndpoints.cs](mdc:LLX.Server/Endpoints/ShippingEndpoints.cs) - 运费相关 API 端点
+
+### 中间件 (Middleware)
+- [Middleware/ExceptionMiddleware.cs](mdc:LLX.Server/Middleware/ExceptionMiddleware.cs) - 全局异常处理中间件
+- [Middleware/LoggingMiddleware.cs](mdc:LLX.Server/Middleware/LoggingMiddleware.cs) - 日志记录中间件
+
+### 扩展方法 (Extensions)
+- [Extensions/ServiceCollectionExtensions.cs](mdc:LLX.Server/Extensions/ServiceCollectionExtensions.cs) - 服务注册扩展
+- [Extensions/EndpointRouteBuilderExtensions.cs](mdc:LLX.Server/Extensions/EndpointRouteBuilderExtensions.cs) - 端点路由扩展
+
+### 工具类 (Utils)
+- [Utils/OrderNumberGenerator.cs](mdc:LLX.Server/Utils/OrderNumberGenerator.cs) - 订单号生成器
+- [Utils/AddressParser.cs](mdc:LLX.Server/Utils/AddressParser.cs) - 地址解析器
+- [Utils/ConfigurationEncryptionTool.cs](mdc:LLX.Server/Utils/ConfigurationEncryptionTool.cs) - 配置加密工具
+
+### 日志系统 (Logging)
+- [Logging/FileLogger.cs](mdc:LLX.Server/Logging/FileLogger.cs) - 文件日志记录器
+- [Logging/FileLoggerProvider.cs](mdc:LLX.Server/Logging/FileLoggerProvider.cs) - 文件日志提供程序
+- [Logging/FileLoggerOptions.cs](mdc:LLX.Server/Logging/FileLoggerOptions.cs) - 文件日志选项
+- [Logging/FileLoggerExtensions.cs](mdc:LLX.Server/Logging/FileLoggerExtensions.cs) - 文件日志扩展
+
+## 架构原则
+
+1. **分层架构**: 严格按照 Controller -> Service -> Repository -> Entity 的分层
+2. **依赖注入**: 所有服务都通过 DI 容器管理
+3. **接口隔离**: 每个实现都有对应的接口
+4. **单一职责**: 每个类只负责一个特定的功能
+5. **缓存策略**: 使用 Redis 进行数据缓存，提高性能
+6. **异常处理**: 统一的异常处理机制
+7. **日志记录**: 完整的日志记录系统
+
+## 技术栈
+
+- **.NET 8.0** - 主要框架
+- **EF Core 8.0** - ORM 框架
+- **PostgreSQL** - 主数据库
+- **Redis** - 缓存数据库
+- **Minimal API** - API 框架
+- **Swagger** - API 文档
+- **Docker** - 容器化部署

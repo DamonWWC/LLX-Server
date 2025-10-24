@@ -1,0 +1,392 @@
+---
+globs: *.cs
+description: C# 编码规范和最佳实践
+---
+
+# C# 编码规范和最佳实践
+
+## 命名规范
+
+### 类和方法命名
+- **类名**: 使用 PascalCase，如 `OrderService`, `ProductRepository`
+- **方法名**: 使用 PascalCase，如 `GetOrderByIdAsync`, `CreateOrderAsync`
+- **接口名**: 以 `I` 开头，如 `IOrderService`, `IProductRepository`
+- **私有字段**: 使用 `_` 前缀，如 `_context`, `_cacheService`
+- **常量**: 使用 PascalCase，如 `CACHE_KEY_PREFIX`
+
+### 异步方法
+- 所有异步方法必须以 `Async` 结尾
+- 返回类型使用 `Task<T>` 或 `Task`
+- 使用 `async/await` 模式
+
+```csharp
+// ✅ 正确
+public async Task<OrderDto> GetOrderByIdAsync(int id)
+{
+    return await _orderRepository.GetByIdAsync(id);
+}
+
+// ❌ 错误
+public Task<OrderDto> GetOrderById(int id)
+{
+    return _orderRepository.GetByIdAsync(id);
+}
+```
+
+## 代码组织
+
+### 文件结构
+每个文件应该包含：
+1. Using 语句
+2. Namespace 声明
+3. 类声明
+4. 构造函数
+5. 公共方法
+6. 私有方法
+7. 内部类（如果有）
+
+### 方法顺序
+```csharp
+public class OrderService : IOrderService
+{
+    // 1. 私有字段
+    private readonly IOrderRepository _orderRepository;
+    
+    // 2. 构造函数
+    public OrderService(IOrderRepository orderRepository)
+    {
+        _orderRepository = orderRepository;
+    }
+    
+    // 3. 公共方法（按功能分组）
+    public async Task<ApiResponse<OrderDto>> GetOrderByIdAsync(int id) { }
+    public async Task<ApiResponse<OrderDto>> CreateOrderAsync(CreateOrderDto createDto) { }
+    
+    // 4. 私有方法
+    private void ValidateCreateOrder(CreateOrderDto createDto) { }
+}
+```
+
+## 异常处理
+
+### 统一异常处理
+使用全局异常处理中间件，服务层不直接抛出异常：
+
+```csharp
+// ✅ 正确 - 返回 ApiResponse
+public async Task<ApiResponse<OrderDto>> GetOrderByIdAsync(int id)
+{
+    try
+    {
+        var order = await _orderRepository.GetByIdAsync(id);
+        if (order == null)
+        {
+            return ApiResponse<OrderDto>.Error("ORDER_NOT_FOUND", "订单不存在");
+        }
+        return ApiResponse<OrderDto>.Success(order);
+    }
+    catch (Exception ex)
+    {
+        _logger.LogError(ex, "获取订单失败，ID: {OrderId}", id);
+        return ApiResponse<OrderDto>.Error("INTERNAL_ERROR", "系统内部错误");
+    }
+}
+
+// ❌ 错误 - 直接抛出异常
+public async Task<OrderDto> GetOrderByIdAsync(int id)
+{
+    var order = await _orderRepository.GetByIdAsync(id);
+    if (order == null)
+        throw new NotFoundException("订单不存在");
+    return order;
+}
+```
+
+## 数据访问模式
+
+### Repository 模式
+所有数据访问都通过 Repository 进行：
+
+```csharp
+// ✅ 正确
+public async Task<OrderDto> GetOrderByIdAsync(int id)
+{
+    var order = await _orderRepository.GetByIdAsync(id);
+    return _mapper.Map<OrderDto>(order);
+}
+
+// ❌ 错误 - 直接使用 DbContext
+public async Task<OrderDto> GetOrderByIdAsync(int id)
+{
+    var order = await _context.Orders.FindAsync(id);
+    return _mapper.Map<OrderDto>(order);
+}
+```
+
+### EF Core 最佳实践
+
+#### 使用 ExecuteUpdate (EF Core 8.0+)
+```csharp
+// ✅ 推荐 - 性能最佳
+public async Task<bool> UpdateStatusAsync(int id, string status)
+{
+    var affected = await _context.Orders
+        .Where(o => o.Id == id)
+        .ExecuteUpdateAsync(s => s
+            .SetProperty(o => o.Status, status)
+            .SetProperty(o => o.UpdatedAt, DateTime.UtcNow));
+    
+    return affected > 0;
+}
+
+// ⚠️ 备选 - 如果需要实体跟踪
+public async Task<bool> UpdateStatusAsync(int id, string status)
+{
+    var order = await _context.Orders
+        .AsTracking()
+        .FirstOrDefaultAsync(o => o.Id == id);
+        
+    if (order == null)
+        return false;
+
+    order.Status = status;
+    order.UpdatedAt = DateTime.UtcNow;
+    
+    await _context.SaveChangesAsync();
+    return true;
+}
+```
+
+#### 查询优化
+```csharp
+// ✅ 正确 - 使用 AsNoTracking 提高查询性能
+public async Task<List<OrderDto>> GetAllOrdersAsync()
+{
+    return await _context.Orders
+        .AsNoTracking()
+        .Select(o => new OrderDto
+        {
+            Id = o.Id,
+            OrderNo = o.OrderNo,
+            Status = o.Status
+        })
+        .ToListAsync();
+}
+
+// ✅ 正确 - 分页查询
+public async Task<PagedResult<OrderDto>> GetOrdersPagedAsync(int pageNumber, int pageSize)
+{
+    var query = _context.Orders.AsNoTracking();
+    
+    var totalCount = await query.CountAsync();
+    var orders = await query
+        .Skip((pageNumber - 1) * pageSize)
+        .Take(pageSize)
+        .ToListAsync();
+    
+    return new PagedResult<OrderDto>
+    {
+        Items = _mapper.Map<List<OrderDto>>(orders),
+        TotalCount = totalCount,
+        PageNumber = pageNumber,
+        PageSize = pageSize
+    };
+}
+```
+
+## 缓存策略
+
+### 缓存键命名
+使用统一的缓存键前缀：
+
+```csharp
+// ✅ 正确 - 使用 CacheStrategy 中定义的键
+private const string CACHE_KEY_PREFIX = "llxrice:order:";
+private const string CACHE_KEY_ALL = "llxrice:order:all";
+
+public async Task<OrderDto> GetOrderByIdAsync(int id)
+{
+    var cacheKey = $"{CACHE_KEY_PREFIX}{id}";
+    return await _cacheService.GetOrSetAsync(cacheKey, async () =>
+    {
+        var order = await _orderRepository.GetByIdAsync(id);
+        return _mapper.Map<OrderDto>(order);
+    }, TimeSpan.FromMinutes(30));
+}
+```
+
+### 缓存失效
+```csharp
+// ✅ 正确 - 更新时清除相关缓存
+public async Task<ApiResponse<OrderDto>> UpdateOrderAsync(int id, UpdateOrderDto updateDto)
+{
+    var result = await _orderRepository.UpdateAsync(id, updateDto);
+    
+    // 清除相关缓存
+    await _cacheService.RemoveAsync($"llxrice:order:{id}");
+    await _cacheService.RemoveByPatternAsync("llxrice:order:all*");
+    
+    return ApiResponse<OrderDto>.Success(result);
+}
+```
+
+## API 设计
+
+### Minimal API 端点
+```csharp
+// ✅ 正确 - 使用 WithTags, WithSummary, WithDescription
+app.MapGet("/api/orders/{id}", GetOrderById)
+    .WithTags("订单管理")
+    .WithSummary("根据ID获取订单")
+    .WithDescription("通过订单ID获取订单详细信息")
+    .Produces<ApiResponse<OrderDto>>(200)
+    .Produces<ApiResponse<object>>(404);
+
+// ✅ 正确 - POST 请求使用 DTO
+app.MapPost("/api/orders", CreateOrder)
+    .WithTags("订单管理")
+    .WithSummary("创建新订单")
+    .WithDescription("创建新的订单记录")
+    .Accepts<CreateOrderDto>("application/json")
+    .Produces<ApiResponse<OrderDto>>(201)
+    .Produces<ApiResponse<object>>(400);
+```
+
+### 请求验证
+```csharp
+// ✅ 正确 - 在服务层进行业务验证
+private void ValidateCreateOrder(CreateOrderDto createDto)
+{
+    if (createDto == null)
+        throw new ArgumentNullException(nameof(createDto));
+    
+    if (createDto.AddressId <= 0)
+        throw new ArgumentException("地址ID必须大于0", nameof(createDto.AddressId));
+    
+    if (createDto.Items == null || !createDto.Items.Any())
+        throw new ArgumentException("订单明细不能为空", nameof(createDto.Items));
+}
+```
+
+## 日志记录
+
+### 结构化日志
+```csharp
+// ✅ 正确 - 使用结构化日志
+_logger.LogInformation("创建订单成功，订单ID: {OrderId}, 订单号: {OrderNo}", 
+    order.Id, order.OrderNo);
+
+_logger.LogError(ex, "获取订单失败，ID: {OrderId}", id);
+
+// ❌ 错误 - 字符串拼接
+_logger.LogInformation($"创建订单成功，订单ID: {order.Id}");
+```
+
+### 日志级别
+- **Trace**: 详细的调试信息
+- **Debug**: 调试信息
+- **Information**: 一般信息
+- **Warning**: 警告信息
+- **Error**: 错误信息
+- **Critical**: 严重错误
+
+## 配置管理
+
+### 环境变量
+```csharp
+// ✅ 正确 - 使用 IConfiguration
+public class DatabaseConfig
+{
+    public string ConnectionString { get; set; } = string.Empty;
+    public string Provider { get; set; } = string.Empty;
+}
+
+// 在 Program.cs 中配置
+builder.Services.Configure<DatabaseConfig>(
+    builder.Configuration.GetSection("Database"));
+```
+
+### 配置加密
+```csharp
+// ✅ 正确 - 使用配置加密服务
+public class ConfigurationEncryptionService : IConfigurationEncryptionService
+{
+    public string Encrypt(string plainText) { }
+    public string Decrypt(string encryptedText) { }
+}
+```
+
+## 性能优化
+
+### 异步编程
+```csharp
+// ✅ 正确 - 避免阻塞调用
+public async Task<List<OrderDto>> GetOrdersAsync()
+{
+    var orders = await _orderRepository.GetAllAsync();
+    return _mapper.Map<List<OrderDto>>(orders);
+}
+
+// ❌ 错误 - 阻塞异步调用
+public List<OrderDto> GetOrders()
+{
+    var orders = _orderRepository.GetAllAsync().Result;
+    return _mapper.Map<List<OrderDto>>(orders);
+}
+```
+
+### 批量操作
+```csharp
+// ✅ 正确 - 使用批量操作
+public async Task AddRangeAsync(IEnumerable<OrderItem> orderItems)
+{
+    _context.OrderItems.AddRange(orderItems);
+    await _context.SaveChangesAsync();
+}
+
+// ❌ 错误 - 循环单个添加
+public async Task AddRangeAsync(IEnumerable<OrderItem> orderItems)
+{
+    foreach (var item in orderItems)
+    {
+        _context.OrderItems.Add(item);
+        await _context.SaveChangesAsync(); // 每次保存
+    }
+}
+```
+
+## 测试
+
+### 单元测试命名
+```csharp
+// ✅ 正确 - 使用 Given_When_Then 模式
+[Test]
+public void GetOrderById_WhenOrderExists_ShouldReturnOrder()
+{
+    // Given
+    var orderId = 1;
+    var expectedOrder = new Order { Id = orderId };
+    
+    // When
+    var result = _orderService.GetOrderByIdAsync(orderId);
+    
+    // Then
+    Assert.That(result.Data.Id, Is.EqualTo(orderId));
+}
+```
+
+## 文档
+
+### XML 文档注释
+```csharp
+/// <summary>
+/// 根据ID获取订单信息
+/// </summary>
+/// <param name="id">订单ID</param>
+/// <returns>订单信息，如果不存在返回null</returns>
+/// <exception cref="ArgumentException">当ID小于等于0时抛出</exception>
+public async Task<OrderDto?> GetOrderByIdAsync(int id)
+{
+    // 实现
+}
+```

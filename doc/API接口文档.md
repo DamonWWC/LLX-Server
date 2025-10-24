@@ -1018,16 +1018,46 @@ GET /api/products/paged?pageNumber=1&pageSize=10&sortBy=name&sortDescending=fals
 | id | integer | 是 | 订单ID |
 
 **请求体**:
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| status | string | 是 | 订单状态（待发货/已发货/已完成/已取消） |
+
+**请求示例**:
 ```json
-"已发货"
+{
+  "status": "已发货"
+}
 ```
 
-**响应示例**:
+**成功响应**:
 ```json
 {
   "success": true,
-  "message": "操作成功",
+  "message": "更新订单状态成功",
   "data": true,
+  "errors": null,
+  "timestamp": "2025-01-22T10:35:00Z"
+}
+```
+
+**失败响应（订单不存在）**:
+```json
+{
+  "success": false,
+  "message": "订单不存在",
+  "data": false,
+  "errors": null,
+  "timestamp": "2025-01-22T10:35:00Z"
+}
+```
+
+**失败响应（状态为空）**:
+```json
+{
+  "success": false,
+  "message": "订单状态不能为空",
+  "data": false,
+  "errors": null,
   "timestamp": "2025-01-22T10:35:00Z"
 }
 ```
@@ -1044,16 +1074,46 @@ GET /api/products/paged?pageNumber=1&pageSize=10&sortBy=name&sortDescending=fals
 | id | integer | 是 | 订单ID |
 
 **请求体**:
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| paymentStatus | string | 是 | 支付状态（未付款/已付款/已退款） |
+
+**请求示例**:
 ```json
-"已支付"
+{
+  "paymentStatus": "已付款"
+}
 ```
 
-**响应示例**:
+**成功响应**:
 ```json
 {
   "success": true,
-  "message": "操作成功",
+  "message": "更新支付状态成功",
   "data": true,
+  "errors": null,
+  "timestamp": "2025-01-22T10:35:00Z"
+}
+```
+
+**失败响应（订单不存在）**:
+```json
+{
+  "success": false,
+  "message": "订单不存在",
+  "data": false,
+  "errors": null,
+  "timestamp": "2025-01-22T10:35:00Z"
+}
+```
+
+**失败响应（支付状态为空）**:
+```json
+{
+  "success": false,
+  "message": "支付状态不能为空",
+  "data": false,
+  "errors": null,
   "timestamp": "2025-01-22T10:35:00Z"
 }
 ```
