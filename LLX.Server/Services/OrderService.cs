@@ -411,7 +411,54 @@ public class OrderService : IOrderService
             return ApiResponse<bool>.ErrorResponse("删除订单失败", new List<string> { ex.Message });
         }
     }
+    /// <summary>
+    /// 批量删除订单
+    /// </summary>
+    /// <param name="ids">订单ID列表</param>
+    /// <returns>操作响应</returns>
+    public async Task<ApiResponse<bool>> DeleteOrdersAsync(List<int> ids)
+    {
+        try
+        {
+            _logger.LogInformation("Deleting orders: {OrderIds}", string.Join(", ", ids));
 
+            // 验证输入
+            if (ids == null || !ids.Any())
+            {
+                return ApiResponse<bool>.ErrorResponse("订单ID列表不能为空");
+            }
+
+            if (ids.Any(id => id <= 0))
+            {
+                return ApiResponse<bool>.ErrorResponse("订单ID必须大于0");
+            }
+
+            // 去重
+            var uniqueIds = ids.Distinct().ToList();
+
+            var result = await _orderRepository.DeleteAllAsync(uniqueIds);
+            if (!result)
+            {
+                _logger.LogWarning("Orders {OrderIds} not found for deletion", string.Join(", ", uniqueIds));
+                return ApiResponse<bool>.ErrorResponse("订单不存在");
+            }
+
+            // 清除相关缓存
+            await _cacheService.RemoveAsync(CACHE_KEY_ALL);
+            foreach (var id in uniqueIds)
+            {
+                await _cacheService.RemoveAsync($"{CACHE_KEY_PREFIX}{id}");
+            }
+
+            _logger.LogInformation("Successfully deleted {Count} orders: {OrderIds}", uniqueIds.Count, string.Join(", ", uniqueIds));
+            return ApiResponse<bool>.SuccessResponse(true, $"成功删除 {uniqueIds.Count} 个订单");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error deleting orders: {OrderIds}", string.Join(", ", ids));
+            return ApiResponse<bool>.ErrorResponse("删除订单失败", new List<string> { ex.Message });
+        }
+    }
     /// <summary>
     /// 计算订单总金额
     /// </summary>

@@ -63,6 +63,13 @@ public interface IOrderRepository
     Task<bool> DeleteAsync(int id);
 
     /// <summary>
+    /// 批量删除订单
+    /// </summary>
+    /// <param name="ids">订单ID列表</param>
+    /// <returns>是否删除成功</returns>
+    Task<bool> DeleteAllAsync(List<int> ids);
+
+    /// <summary>
     /// 更新订单状态
     /// </summary>
     /// <param name="id">订单ID</param>

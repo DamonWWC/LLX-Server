@@ -73,6 +73,13 @@ public interface IOrderService
     Task<ApiResponse<bool>> DeleteOrderAsync(int id);
 
     /// <summary>
+    /// 批量删除订单
+    /// </summary>
+    /// <param name="ids">订单ID列表</param>
+    /// <returns>操作响应</returns>
+    Task<ApiResponse<bool>> DeleteOrdersAsync(List<int> ids);
+
+    /// <summary>
     /// 计算订单总金额
     /// </summary>
     /// <param name="items">订单明细</param>

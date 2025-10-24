@@ -131,6 +131,30 @@ public class OrderRepository : IOrderRepository
     }
 
     /// <summary>
+    /// 批量删除订单
+    /// </summary>
+    /// <param name="ids">订单ID列表</param>
+    /// <returns>是否删除成功</returns>
+    public async Task<bool> DeleteAllAsync(List<int> ids)
+    {
+        if (ids == null || !ids.Any())
+            return false;
+
+        // 批量查询要删除的订单
+        var orders = await _context.Orders
+            .Where(o => ids.Contains(o.Id))
+            .ToListAsync();
+
+        if (!orders.Any())
+            return false;
+
+        // 批量删除订单（级联删除订单明细）
+        _context.Orders.RemoveRange(orders);
+        await _context.SaveChangesAsync();
+        return true;
+    }
+
+    /// <summary>
     /// 更新订单状态
     /// </summary>
     /// <param name="id">订单ID</param>

@@ -1079,7 +1079,45 @@ GET /api/products/paged?pageNumber=1&pageSize=10&sortBy=name&sortDescending=fals
 }
 ```
 
-### 10. 计算订单
+### 10. 批量删除订单
+
+**接口地址**: `POST /api/orders/batch/delete`
+
+**接口描述**: 批量删除多个订单
+
+**请求体**:
+```json
+{
+  "ids": [1, 2, 3, 4, 5]
+}
+```
+
+**请求体字段说明**:
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| ids | array | 是 | 订单ID列表 |
+
+**响应示例**:
+```json
+{
+  "success": true,
+  "message": "成功删除 5 个订单",
+  "data": true,
+  "timestamp": "2025-01-22T10:40:00Z"
+}
+```
+
+**错误响应示例**:
+```json
+{
+  "success": false,
+  "message": "订单ID列表不能为空",
+  "data": false,
+  "timestamp": "2025-01-22T10:40:00Z"
+}
+```
+
+### 11. 计算订单
 
 **接口地址**: `POST /api/orders/calculate`
 

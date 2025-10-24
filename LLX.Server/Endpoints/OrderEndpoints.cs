@@ -89,6 +89,14 @@ public static class OrderEndpoints
             .Produces<ApiResponse<bool>>(200)
             .Produces<ApiResponse<bool>>(404);
 
+        // 批量删除订单
+        group.MapPost("/batch/delete", DeleteOrders)
+            .WithName("DeleteOrders")
+            .WithSummary("批量删除订单")
+            .WithDescription("批量删除多个订单")
+            .Produces<ApiResponse<bool>>(200)
+            .Produces<ApiResponse<bool>>(400);
+
         // 计算订单
         group.MapPost("/calculate", CalculateOrder)
             .WithName("CalculateOrder")
@@ -228,6 +236,18 @@ public static class OrderEndpoints
     }
 
     /// <summary>
+    /// 批量删除订单
+    /// </summary>
+    /// <param name="request">批量删除请求</param>
+    /// <param name="orderService">订单服务</param>
+    /// <returns>删除结果</returns>
+    private static async Task<IResult> DeleteOrders(DeleteOrdersRequest request, IOrderService orderService)
+    {
+        var result = await orderService.DeleteOrdersAsync(request.Ids);
+        return result.Success ? Results.Ok(result) : Results.BadRequest(result);
+    }
+
+    /// <summary>
     /// 计算订单
     /// </summary>
     /// <param name="request">计算请求</param>
@@ -246,5 +266,13 @@ public static class OrderEndpoints
     {
         public List<CreateOrderItemDto> Items { get; set; } = new();
         public int AddressId { get; set; }
+    }
+
+    /// <summary>
+    /// 批量删除订单请求
+    /// </summary>
+    public class DeleteOrdersRequest
+    {
+        public List<int> Ids { get; set; } = new();
     }
 }
