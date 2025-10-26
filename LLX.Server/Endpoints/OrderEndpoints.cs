@@ -110,7 +110,9 @@ public static class OrderEndpoints
     /// 获取所有订单
     /// </summary>
     /// <param name="orderService">订单服务</param>
-    /// <returns>订单列表</returns>
+    /// <returns>返回系统中所有订单列表，包含订单详情、地址信息和订单项</returns>
+    /// <response code="200">成功返回订单列表</response>
+    /// <response code="400">请求参数错误</response>
     private static async Task<IResult> GetAllOrders(IOrderService orderService)
     {
         var result = await orderService.GetAllOrdersAsync();
@@ -122,7 +124,10 @@ public static class OrderEndpoints
     /// </summary>
     /// <param name="id">订单ID</param>
     /// <param name="orderService">订单服务</param>
-    /// <returns>订单信息</returns>
+    /// <returns>返回指定ID的订单详细信息，包含订单项、地址信息和计算金额</returns>
+    /// <response code="200">成功返回订单信息</response>
+    /// <response code="404">订单不存在</response>
+    /// <response code="400">请求参数错误</response>
     private static async Task<IResult> GetOrderById(int id, IOrderService orderService)
     {
         var result = await orderService.GetOrderByIdAsync(id);
@@ -138,7 +143,10 @@ public static class OrderEndpoints
     /// </summary>
     /// <param name="orderNo">订单号</param>
     /// <param name="orderService">订单服务</param>
-    /// <returns>订单信息</returns>
+    /// <returns>返回指定订单号的订单详细信息</returns>
+    /// <response code="200">成功返回订单信息</response>
+    /// <response code="404">订单不存在</response>
+    /// <response code="400">请求参数错误</response>
     private static async Task<IResult> GetOrderByOrderNo(string orderNo, IOrderService orderService)
     {
         var result = await orderService.GetOrderByOrderNoAsync(orderNo);
@@ -152,9 +160,11 @@ public static class OrderEndpoints
     /// <summary>
     /// 根据状态获取订单列表
     /// </summary>
-    /// <param name="status">订单状态</param>
+    /// <param name="status">订单状态（如：待发货、已发货、已完成等）</param>
     /// <param name="orderService">订单服务</param>
-    /// <returns>订单列表</returns>
+    /// <returns>返回指定状态的所有订单列表</returns>
+    /// <response code="200">成功返回订单列表</response>
+    /// <response code="400">请求参数错误</response>
     private static async Task<IResult> GetOrdersByStatus(string status, IOrderService orderService)
     {
         var result = await orderService.GetOrdersByStatusAsync(status);
@@ -166,7 +176,9 @@ public static class OrderEndpoints
     /// </summary>
     /// <param name="addressId">地址ID</param>
     /// <param name="orderService">订单服务</param>
-    /// <returns>订单列表</returns>
+    /// <returns>返回使用指定地址的所有订单列表</returns>
+    /// <response code="200">成功返回订单列表</response>
+    /// <response code="400">请求参数错误</response>
     private static async Task<IResult> GetOrdersByAddressId(int addressId, IOrderService orderService)
     {
         var result = await orderService.GetOrdersByAddressIdAsync(addressId);
@@ -176,9 +188,11 @@ public static class OrderEndpoints
     /// <summary>
     /// 创建订单
     /// </summary>
-    /// <param name="createDto">创建订单DTO</param>
+    /// <param name="createDto">创建订单的数据传输对象</param>
     /// <param name="orderService">订单服务</param>
-    /// <returns>创建的订单</returns>
+    /// <returns>返回新创建的订单信息，包含自动生成的订单号和计算金额</returns>
+    /// <response code="201">成功创建订单</response>
+    /// <response code="400">请求参数错误或订单信息无效</response>
     private static async Task<IResult> CreateOrder(CreateOrderDto createDto, IOrderService orderService)
     {
         var result = await orderService.CreateOrderAsync(createDto);
@@ -191,7 +205,10 @@ public static class OrderEndpoints
     /// <param name="id">订单ID</param>
     /// <param name="request">状态更新请求</param>
     /// <param name="orderService">订单服务</param>
-    /// <returns>更新结果</returns>
+    /// <returns>返回状态更新操作的结果</returns>
+    /// <response code="200">成功更新订单状态</response>
+    /// <response code="400">请求参数错误</response>
+    /// <response code="404">订单不存在</response>
     private static async Task<IResult> UpdateOrderStatus(int id, UpdateStatusRequest request, IOrderService orderService)
     {
         var result = await orderService.UpdateOrderStatusAsync(id, request.Status);
@@ -208,7 +225,10 @@ public static class OrderEndpoints
     /// <param name="id">订单ID</param>
     /// <param name="request">支付状态更新请求</param>
     /// <param name="orderService">订单服务</param>
-    /// <returns>更新结果</returns>
+    /// <returns>返回支付状态更新操作的结果</returns>
+    /// <response code="200">成功更新支付状态</response>
+    /// <response code="400">请求参数错误</response>
+    /// <response code="404">订单不存在</response>
     private static async Task<IResult> UpdatePaymentStatus(int id, UpdatePaymentStatusRequest request, IOrderService orderService)
     {
         var result = await orderService.UpdatePaymentStatusAsync(id, request.PaymentStatus);
@@ -224,7 +244,10 @@ public static class OrderEndpoints
     /// </summary>
     /// <param name="id">订单ID</param>
     /// <param name="orderService">订单服务</param>
-    /// <returns>删除结果</returns>
+    /// <returns>返回删除操作的结果</returns>
+    /// <response code="200">成功删除订单</response>
+    /// <response code="404">订单不存在</response>
+    /// <response code="400">删除操作失败</response>
     private static async Task<IResult> DeleteOrder(int id, IOrderService orderService)
     {
         var result = await orderService.DeleteOrderAsync(id);
@@ -240,7 +263,9 @@ public static class OrderEndpoints
     /// </summary>
     /// <param name="request">批量删除请求</param>
     /// <param name="orderService">订单服务</param>
-    /// <returns>删除结果</returns>
+    /// <returns>返回批量删除操作的结果</returns>
+    /// <response code="200">成功删除订单</response>
+    /// <response code="400">请求参数错误</response>
     private static async Task<IResult> DeleteOrders(DeleteOrdersRequest request, IOrderService orderService)
     {
         var result = await orderService.DeleteOrdersAsync(request.Ids);
@@ -252,7 +277,9 @@ public static class OrderEndpoints
     /// </summary>
     /// <param name="request">计算请求</param>
     /// <param name="orderService">订单服务</param>
-    /// <returns>计算结果</returns>
+    /// <returns>返回订单计算结果，包含商品总价、运费和最终总金额</returns>
+    /// <response code="200">成功计算订单</response>
+    /// <response code="400">请求参数错误或计算失败</response>
     private static async Task<IResult> CalculateOrder(CalculateOrderRequest request, IOrderService orderService)
     {
         var result = await orderService.CalculateOrderAsync(request.Items, request.AddressId);

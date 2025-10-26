@@ -79,7 +79,9 @@ public static class ShippingEndpoints
     /// 获取所有运费配置
     /// </summary>
     /// <param name="shippingService">运费服务</param>
-    /// <returns>运费配置列表</returns>
+    /// <returns>返回系统中所有运费配置列表</returns>
+    /// <response code="200">成功返回运费配置列表</response>
+    /// <response code="400">请求参数错误</response>
     private static async Task<IResult> GetAllShippingRates(IShippingService shippingService)
     {
         var result = await shippingService.GetAllShippingRatesAsync();
@@ -91,7 +93,10 @@ public static class ShippingEndpoints
     /// </summary>
     /// <param name="id">运费配置ID</param>
     /// <param name="shippingService">运费服务</param>
-    /// <returns>运费配置信息</returns>
+    /// <returns>返回指定ID的运费配置详细信息</returns>
+    /// <response code="200">成功返回运费配置信息</response>
+    /// <response code="404">运费配置不存在</response>
+    /// <response code="400">请求参数错误</response>
     private static async Task<IResult> GetShippingRateById(int id, IShippingService shippingService)
     {
         var result = await shippingService.GetShippingRateByIdAsync(id);
@@ -105,9 +110,12 @@ public static class ShippingEndpoints
     /// <summary>
     /// 根据省份获取运费配置
     /// </summary>
-    /// <param name="province">省份</param>
+    /// <param name="province">省份名称</param>
     /// <param name="shippingService">运费服务</param>
-    /// <returns>运费配置信息</returns>
+    /// <returns>返回指定省份的运费配置信息</returns>
+    /// <response code="200">成功返回运费配置信息</response>
+    /// <response code="404">该省份的运费配置不存在</response>
+    /// <response code="400">请求参数错误</response>
     private static async Task<IResult> GetShippingRateByProvince(string province, IShippingService shippingService)
     {
         var result = await shippingService.GetShippingRateByProvinceAsync(province);
@@ -121,9 +129,11 @@ public static class ShippingEndpoints
     /// <summary>
     /// 创建运费配置
     /// </summary>
-    /// <param name="createDto">创建运费配置DTO</param>
+    /// <param name="createDto">创建运费配置的数据传输对象</param>
     /// <param name="shippingService">运费服务</param>
-    /// <returns>创建的运费配置</returns>
+    /// <returns>返回新创建的运费配置信息</returns>
+    /// <response code="201">成功创建运费配置</response>
+    /// <response code="400">请求参数错误或配置信息无效</response>
     private static async Task<IResult> CreateShippingRate(CreateShippingRateDto createDto, IShippingService shippingService)
     {
         var result = await shippingService.CreateShippingRateAsync(createDto);
@@ -134,9 +144,12 @@ public static class ShippingEndpoints
     /// 更新运费配置
     /// </summary>
     /// <param name="id">运费配置ID</param>
-    /// <param name="updateDto">更新运费配置DTO</param>
+    /// <param name="updateDto">更新运费配置的数据传输对象</param>
     /// <param name="shippingService">运费服务</param>
-    /// <returns>更新后的运费配置</returns>
+    /// <returns>返回更新后的运费配置信息</returns>
+    /// <response code="200">成功更新运费配置</response>
+    /// <response code="400">请求参数错误</response>
+    /// <response code="404">运费配置不存在</response>
     private static async Task<IResult> UpdateShippingRate(int id, UpdateShippingRateDto updateDto, IShippingService shippingService)
     {
         var result = await shippingService.UpdateShippingRateAsync(id, updateDto);
@@ -152,7 +165,10 @@ public static class ShippingEndpoints
     /// </summary>
     /// <param name="id">运费配置ID</param>
     /// <param name="shippingService">运费服务</param>
-    /// <returns>删除结果</returns>
+    /// <returns>返回删除操作的结果</returns>
+    /// <response code="200">成功删除运费配置</response>
+    /// <response code="404">运费配置不存在</response>
+    /// <response code="400">删除操作失败</response>
     private static async Task<IResult> DeleteShippingRate(int id, IShippingService shippingService)
     {
         var result = await shippingService.DeleteShippingRateAsync(id);
@@ -168,7 +184,9 @@ public static class ShippingEndpoints
     /// </summary>
     /// <param name="request">计算请求</param>
     /// <param name="shippingService">运费服务</param>
-    /// <returns>计算结果</returns>
+    /// <returns>返回运费计算结果，包含运费单价和总运费</returns>
+    /// <response code="200">成功计算运费</response>
+    /// <response code="400">请求参数错误或计算失败</response>
     private static async Task<IResult> CalculateShipping(CalculateShippingRequest request, IShippingService shippingService)
     {
         var result = await shippingService.CalculateShippingAsync(request.Province, request.Weight);

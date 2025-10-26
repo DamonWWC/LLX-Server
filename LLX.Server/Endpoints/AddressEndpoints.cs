@@ -93,7 +93,9 @@ public static class AddressEndpoints
     /// 获取所有地址
     /// </summary>
     /// <param name="addressService">地址服务</param>
-    /// <returns>地址列表</returns>
+    /// <returns>返回系统中所有地址列表</returns>
+    /// <response code="200">成功返回地址列表</response>
+    /// <response code="400">请求参数错误</response>
     private static async Task<IResult> GetAllAddresses(IAddressService addressService)
     {
         var result = await addressService.GetAllAddressesAsync();
@@ -105,7 +107,10 @@ public static class AddressEndpoints
     /// </summary>
     /// <param name="id">地址ID</param>
     /// <param name="addressService">地址服务</param>
-    /// <returns>地址信息</returns>
+    /// <returns>返回指定ID的地址详细信息</returns>
+    /// <response code="200">成功返回地址信息</response>
+    /// <response code="404">地址不存在</response>
+    /// <response code="400">请求参数错误</response>
     private static async Task<IResult> GetAddressById(int id, IAddressService addressService)
     {
         var result = await addressService.GetAddressByIdAsync(id);
@@ -120,7 +125,9 @@ public static class AddressEndpoints
     /// 获取默认地址
     /// </summary>
     /// <param name="addressService">地址服务</param>
-    /// <returns>默认地址</returns>
+    /// <returns>返回当前设置的默认地址</returns>
+    /// <response code="200">成功返回默认地址</response>
+    /// <response code="400">请求参数错误</response>
     private static async Task<IResult> GetDefaultAddress(IAddressService addressService)
     {
         var result = await addressService.GetDefaultAddressAsync();
@@ -132,7 +139,9 @@ public static class AddressEndpoints
     /// </summary>
     /// <param name="phone">手机号</param>
     /// <param name="addressService">地址服务</param>
-    /// <returns>地址列表</returns>
+    /// <returns>返回使用指定手机号的所有地址列表</returns>
+    /// <response code="200">成功返回地址列表</response>
+    /// <response code="400">请求参数错误</response>
     private static async Task<IResult> GetAddressesByPhone(string phone, IAddressService addressService)
     {
         var result = await addressService.GetAddressesByPhoneAsync(phone);
@@ -142,9 +151,11 @@ public static class AddressEndpoints
     /// <summary>
     /// 创建地址
     /// </summary>
-    /// <param name="createDto">创建地址DTO</param>
+    /// <param name="createDto">创建地址的数据传输对象</param>
     /// <param name="addressService">地址服务</param>
-    /// <returns>创建的地址</returns>
+    /// <returns>返回新创建的地址信息</returns>
+    /// <response code="201">成功创建地址</response>
+    /// <response code="400">请求参数错误或地址信息无效</response>
     private static async Task<IResult> CreateAddress(CreateAddressDto createDto, IAddressService addressService)
     {
         var result = await addressService.CreateAddressAsync(createDto);
@@ -155,9 +166,12 @@ public static class AddressEndpoints
     /// 更新地址
     /// </summary>
     /// <param name="id">地址ID</param>
-    /// <param name="updateDto">更新地址DTO</param>
+    /// <param name="updateDto">更新地址的数据传输对象</param>
     /// <param name="addressService">地址服务</param>
-    /// <returns>更新后的地址</returns>
+    /// <returns>返回更新后的地址信息</returns>
+    /// <response code="200">成功更新地址</response>
+    /// <response code="400">请求参数错误</response>
+    /// <response code="404">地址不存在</response>
     private static async Task<IResult> UpdateAddress(int id, UpdateAddressDto updateDto, IAddressService addressService)
     {
         var result = await addressService.UpdateAddressAsync(id, updateDto);
@@ -173,7 +187,10 @@ public static class AddressEndpoints
     /// </summary>
     /// <param name="id">地址ID</param>
     /// <param name="addressService">地址服务</param>
-    /// <returns>删除结果</returns>
+    /// <returns>返回删除操作的结果</returns>
+    /// <response code="200">成功删除地址</response>
+    /// <response code="404">地址不存在</response>
+    /// <response code="400">删除操作失败</response>
     private static async Task<IResult> DeleteAddress(int id, IAddressService addressService)
     {
         var result = await addressService.DeleteAddressAsync(id);
@@ -189,7 +206,10 @@ public static class AddressEndpoints
     /// </summary>
     /// <param name="id">地址ID</param>
     /// <param name="addressService">地址服务</param>
-    /// <returns>设置结果</returns>
+    /// <returns>返回设置默认地址操作的结果</returns>
+    /// <response code="200">成功设置默认地址</response>
+    /// <response code="404">地址不存在</response>
+    /// <response code="400">设置操作失败</response>
     private static async Task<IResult> SetDefaultAddress(int id, IAddressService addressService)
     {
         var result = await addressService.SetDefaultAddressAsync(id);
@@ -205,7 +225,9 @@ public static class AddressEndpoints
     /// </summary>
     /// <param name="request">解析请求</param>
     /// <param name="addressService">地址服务</param>
-    /// <returns>解析结果</returns>
+    /// <returns>返回解析后的地址信息，包含姓名、手机号、省市区和详细地址</returns>
+    /// <response code="200">成功解析地址</response>
+    /// <response code="400">请求参数错误或解析失败</response>
     private static async Task<IResult> ParseAddress([FromBody] ParseAddressRequest request, IAddressService addressService)
     {
         var result = await addressService.ParseAddressAsync(request.FullAddress);

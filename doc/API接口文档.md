@@ -2,7 +2,7 @@
 
 ## 📋 概述
 
-本文档提供了林龍香大米商城后端服务的完整 API 接口文档，包括商品管理、地址管理、订单管理、运费计算和日志测试等功能模块。
+本文档提供了林龍香大米商城后端服务的完整 API 接口文档，包括商品管理、地址管理、订单管理、运费计算等功能模块。基于 .NET 8.0 和 Minimal API 架构实现。
 
 ## 🌐 基础信息
 
@@ -10,6 +10,8 @@
 - **API 版本**: v1
 - **数据格式**: JSON
 - **字符编码**: UTF-8
+- **架构**: .NET 8.0 Minimal API
+- **数据库**: PostgreSQL + Redis
 
 ## 📊 统一响应格式
 
@@ -184,6 +186,8 @@ GET /api/products/paged?pageNumber=1&pageSize=10&sortBy=name&sortDescending=fals
 }
 ```
 
+**注意**: 此接口使用 `QueryOptimizer.PagedResult<ProductDto>` 作为分页结果类型，提供高效的分页查询功能。
+
 ### 5. 创建商品
 
 **接口地址**: `POST /api/products`
@@ -255,6 +259,16 @@ GET /api/products/paged?pageNumber=1&pageSize=10&sortBy=name&sortDescending=fals
 }
 ```
 
+**请求体字段说明**:
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| name | string | 是 | 商品名称 |
+| price | decimal | 是 | 商品价格 |
+| unit | string | 是 | 商品单位 |
+| weight | decimal | 是 | 商品重量（kg） |
+| image | string | 否 | 商品图片（Base64编码） |
+| quantity | integer | 是 | 库存数量 |
+
 **响应示例**:
 ```json
 {
@@ -312,12 +326,27 @@ GET /api/products/paged?pageNumber=1&pageSize=10&sortBy=name&sortDescending=fals
 200
 ```
 
+**请求体字段说明**:
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| quantity | integer | 是 | 新的库存数量 |
+
 **响应示例**:
 ```json
 {
   "success": true,
   "message": "操作成功",
   "data": true,
+  "timestamp": "2025-01-22T10:45:00Z"
+}
+```
+
+**错误响应示例**:
+```json
+{
+  "success": false,
+  "message": "商品不存在",
+  "data": false,
   "timestamp": "2025-01-22T10:45:00Z"
 }
 ```
@@ -592,7 +621,7 @@ GET /api/products/paged?pageNumber=1&pageSize=10&sortBy=name&sortDescending=fals
 
 **接口地址**: `POST /api/addresses/parse`
 
-**接口描述**: 智能解析地址文本，提取省市区和详细信息
+**接口描述**: 智能解析地址文本，提取省市区和详细信息。使用内置的地址解析器自动识别姓名、手机号、省市区和详细地址。
 
 **请求体**:
 ```json
@@ -622,6 +651,18 @@ GET /api/products/paged?pageNumber=1&pageSize=10&sortBy=name&sortDescending=fals
   "timestamp": "2025-01-22T10:30:00Z"
 }
 ```
+
+**错误响应示例**:
+```json
+{
+  "success": false,
+  "message": "地址解析失败",
+  "data": null,
+  "timestamp": "2025-01-22T10:30:00Z"
+}
+```
+
+**注意**: 此接口使用 `AddressParser` 工具类进行智能地址解析，支持多种地址格式的自动识别。
 
 ## 📦 订单管理 API
 
@@ -1181,7 +1222,7 @@ GET /api/products/paged?pageNumber=1&pageSize=10&sortBy=name&sortDescending=fals
 
 **接口地址**: `POST /api/orders/calculate`
 
-**接口描述**: 计算订单的总金额和运费
+**接口描述**: 计算订单的总金额和运费。此接口用于订单创建前的价格预览，会根据商品价格、重量和收货地址自动计算运费和总金额。
 
 **请求体**:
 ```json
@@ -1224,6 +1265,18 @@ GET /api/products/paged?pageNumber=1&pageSize=10&sortBy=name&sortDescending=fals
   "timestamp": "2025-01-22T10:30:00Z"
 }
 ```
+
+**错误响应示例**:
+```json
+{
+  "success": false,
+  "message": "商品不存在或地址不存在",
+  "data": null,
+  "timestamp": "2025-01-22T10:30:00Z"
+}
+```
+
+**注意**: 此接口使用 `OrderCalculationDto` 作为响应类型，提供详细的订单计算信息，包括商品总价、总重量、运费率和最终总金额。
 
 ## 🚚 运费管理 API
 
@@ -1410,7 +1463,7 @@ GET /api/products/paged?pageNumber=1&pageSize=10&sortBy=name&sortDescending=fals
 
 **接口地址**: `POST /api/shipping/calculate`
 
-**接口描述**: 根据省份和重量计算运费
+**接口描述**: 根据省份和重量计算运费。此接口用于计算指定省份和重量的运费，返回运费单价和总运费。
 
 **请求体**:
 ```json
@@ -1440,6 +1493,18 @@ GET /api/products/paged?pageNumber=1&pageSize=10&sortBy=name&sortDescending=fals
   "timestamp": "2025-01-22T10:30:00Z"
 }
 ```
+
+**错误响应示例**:
+```json
+{
+  "success": false,
+  "message": "未找到该省份的运费配置",
+  "data": null,
+  "timestamp": "2025-01-22T10:30:00Z"
+}
+```
+
+**注意**: 此接口使用 `ShippingCalculationDto` 作为响应类型，提供详细的运费计算信息。
 
 ## 📝 日志测试 API
 
@@ -1566,6 +1631,31 @@ GET /api/products/paged?pageNumber=1&pageSize=10&sortBy=name&sortDescending=fals
 }
 ```
 
+## 🏗️ 技术架构
+
+### 后端技术栈
+- **.NET 8.0** - 主要开发框架
+- **EF Core 8.0** - ORM 数据访问框架
+- **Minimal API** - 现代化 API 框架
+- **PostgreSQL** - 主数据库
+- **Redis** - 缓存数据库
+- **Swagger/OpenAPI** - API 文档生成
+
+### 架构模式
+- **Clean Architecture** - 清晰的分层架构
+- **Repository Pattern** - 数据访问抽象层
+- **Dependency Injection** - 依赖注入容器
+- **CQRS 思想** - 读写分离设计
+- **缓存策略** - 多层缓存设计
+
+### 核心组件
+- **Endpoints** - API 端点定义
+- **Services** - 业务逻辑层
+- **Repositories** - 数据访问层
+- **DTOs** - 数据传输对象
+- **Middleware** - 中间件处理
+- **Utils** - 工具类
+
 ## 📊 订单状态说明
 
 ### 支付状态 (PaymentStatus)
@@ -1609,11 +1699,12 @@ GET /api/products/paged?pageNumber=1&pageSize=10&sortBy=name&sortDescending=fals
 | ADDRESS_NOT_FOUND | 地址不存在 |
 | ORDER_NOT_FOUND | 订单不存在 |
 | SHIPPING_RATE_NOT_FOUND | 运费配置不存在 |
-| ~~INSUFFICIENT_STOCK~~ | ~~库存不足~~ (已移除) |
 | INVALID_QUANTITY | 数量无效 |
 | INVALID_ADDRESS | 地址格式无效 |
 | INVALID_PAYMENT_STATUS | 支付状态无效 |
 | INVALID_ORDER_STATUS | 订单状态无效 |
+| CALCULATION_ERROR | 计算错误 |
+| PARSE_ERROR | 解析错误 |
 
 ## 🧪 测试工具
 
@@ -1665,6 +1756,7 @@ GET /api/products/paged?pageNumber=1&pageSize=10&sortBy=name&sortDescending=fals
 
 ---
 
-**文档版本**: v1.0  
-**最后更新**: 2025-01-22  
-**维护团队**: 林龍香大米商城开发团队
+**文档版本**: v2.0  
+**最后更新**: 2025-01-24  
+**维护团队**: 林龍香大米商城开发团队  
+**技术栈**: .NET 8.0 + EF Core 8.0 + Minimal API + PostgreSQL + Redis

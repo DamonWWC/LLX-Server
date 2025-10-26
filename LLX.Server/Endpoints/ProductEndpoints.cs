@@ -87,7 +87,9 @@ public static class ProductEndpoints
     /// 获取所有商品
     /// </summary>
     /// <param name="productService">商品服务</param>
-    /// <returns>商品列表</returns>
+    /// <returns>返回系统中所有可用的商品列表，包括商品的基本信息如名称、价格、库存等</returns>
+    /// <response code="200">成功返回商品列表</response>
+    /// <response code="400">请求参数错误</response>
     private static async Task<IResult> GetAllProducts(IProductService productService)
     {
         var result = await productService.GetAllProductsAsync();
@@ -99,7 +101,10 @@ public static class ProductEndpoints
     /// </summary>
     /// <param name="id">商品ID</param>
     /// <param name="productService">商品服务</param>
-    /// <returns>商品信息</returns>
+    /// <returns>返回指定ID的商品详细信息，包括价格、库存、图片等完整信息</returns>
+    /// <response code="200">成功返回商品信息</response>
+    /// <response code="404">商品不存在</response>
+    /// <response code="400">请求参数错误</response>
     private static async Task<IResult> GetProductById(int id, IProductService productService)
     {
         var result = await productService.GetProductByIdAsync(id);
@@ -113,9 +118,11 @@ public static class ProductEndpoints
     /// <summary>
     /// 搜索商品
     /// </summary>
-    /// <param name="name">商品名称</param>
+    /// <param name="name">商品名称关键词</param>
     /// <param name="productService">商品服务</param>
-    /// <returns>商品列表</returns>
+    /// <returns>返回包含指定关键词的商品列表，支持模糊匹配</returns>
+    /// <response code="200">成功返回搜索结果</response>
+    /// <response code="400">请求参数错误</response>
     private static async Task<IResult> SearchProducts([FromQuery] string name, IProductService productService)
     {
         var result = await productService.SearchProductsAsync(name);
@@ -125,9 +132,11 @@ public static class ProductEndpoints
     /// <summary>
     /// 创建商品
     /// </summary>
-    /// <param name="createDto">创建商品DTO</param>
+    /// <param name="createDto">创建商品的数据传输对象</param>
     /// <param name="productService">商品服务</param>
-    /// <returns>创建的商品</returns>
+    /// <returns>返回新创建的商品信息，包含自动生成的ID和时间戳</returns>
+    /// <response code="201">成功创建商品</response>
+    /// <response code="400">请求参数错误或商品信息无效</response>
     private static async Task<IResult> CreateProduct(CreateProductDto createDto, IProductService productService)
     {
         var result = await productService.CreateProductAsync(createDto);
@@ -138,9 +147,12 @@ public static class ProductEndpoints
     /// 更新商品
     /// </summary>
     /// <param name="id">商品ID</param>
-    /// <param name="updateDto">更新商品DTO</param>
+    /// <param name="updateDto">更新商品的数据传输对象</param>
     /// <param name="productService">商品服务</param>
-    /// <returns>更新后的商品</returns>
+    /// <returns>返回更新后的商品信息</returns>
+    /// <response code="200">成功更新商品</response>
+    /// <response code="400">请求参数错误</response>
+    /// <response code="404">商品不存在</response>
     private static async Task<IResult> UpdateProduct(int id, UpdateProductDto updateDto, IProductService productService)
     {
         var result = await productService.UpdateProductAsync(id, updateDto);
@@ -156,7 +168,10 @@ public static class ProductEndpoints
     /// </summary>
     /// <param name="id">商品ID</param>
     /// <param name="productService">商品服务</param>
-    /// <returns>删除结果</returns>
+    /// <returns>返回删除操作的结果</returns>
+    /// <response code="200">成功删除商品</response>
+    /// <response code="404">商品不存在</response>
+    /// <response code="400">删除操作失败</response>
     private static async Task<IResult> DeleteProduct(int id, IProductService productService)
     {
         var result = await productService.DeleteProductAsync(id);
@@ -171,9 +186,12 @@ public static class ProductEndpoints
     /// 更新商品库存
     /// </summary>
     /// <param name="id">商品ID</param>
-    /// <param name="quantity">库存数量</param>
+    /// <param name="quantity">新的库存数量</param>
     /// <param name="productService">商品服务</param>
-    /// <returns>更新结果</returns>
+    /// <returns>返回库存更新操作的结果</returns>
+    /// <response code="200">成功更新库存</response>
+    /// <response code="400">请求参数错误</response>
+    /// <response code="404">商品不存在</response>
     private static async Task<IResult> UpdateProductQuantity(int id, [FromBody] int quantity, IProductService productService)
     {
         var result = await productService.UpdateProductQuantityAsync(id, quantity);
@@ -187,13 +205,15 @@ public static class ProductEndpoints
     /// <summary>
     /// 分页获取商品
     /// </summary>
-    /// <param name="pageNumber">页码</param>
-    /// <param name="pageSize">页大小</param>
-    /// <param name="sortBy">排序字段</param>
-    /// <param name="sortDescending">是否降序</param>
-    /// <param name="searchTerm">搜索词</param>
+    /// <param name="pageNumber">页码，从1开始</param>
+    /// <param name="pageSize">每页大小，默认20</param>
+    /// <param name="sortBy">排序字段，可选值：name, price, createdAt等</param>
+    /// <param name="sortDescending">是否降序排列</param>
+    /// <param name="searchTerm">搜索关键词，支持商品名称模糊搜索</param>
     /// <param name="productService">商品服务</param>
-    /// <returns>分页结果</returns>
+    /// <returns>返回分页的商品列表，包含总数、当前页、总页数等信息</returns>
+    /// <response code="200">成功返回分页结果</response>
+    /// <response code="400">请求参数错误</response>
     private static async Task<IResult> GetProductsPaged(
         [FromQuery] int pageNumber = 1,
         [FromQuery] int pageSize = 20,
