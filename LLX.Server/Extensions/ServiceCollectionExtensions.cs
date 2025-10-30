@@ -248,7 +248,7 @@ public static class ServiceCollectionExtensions
             {
                 Title = "林龍香大米商城 API",
                 Version = "v1",
-                Description = "基于 .NET 8 Minimal API 的后端服务",
+                Description = "基于 .NET 9 Minimal API 的后端服务",
                 Contact = new()
                 {
                     Name = "LLXRice Team",

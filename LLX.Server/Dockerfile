@@ -2,7 +2,7 @@
 # 多阶段构建，优化镜像大小和安全性
 
 # 构建阶段
-FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
+FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
 
 # 设置工作目录
 WORKDIR /src
@@ -23,7 +23,7 @@ FROM build AS publish
 RUN dotnet publish "LLX.Server.csproj" -c Release -o /app/publish /p:UseAppHost=false
 
 # 运行时阶段
-FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS final
+FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS final
 
 # 创建非root用户
 RUN groupadd -r appuser && useradd -r -g appuser appuser
