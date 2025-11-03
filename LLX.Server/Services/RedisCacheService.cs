@@ -52,7 +52,7 @@ public class RedisCacheService : ICacheService
         }
 
         try
-        {
+        {           
             var value = await _database.StringGetAsync(key);
             if (value.IsNullOrEmpty)
                 return default;
