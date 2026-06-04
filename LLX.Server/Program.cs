@@ -12,8 +12,30 @@ namespace LLX.Server;
 
 public class Program
 {
+
+    private static AutoResetEvent auto = new AutoResetEvent(false);
+    private static void AutoResetEventHandler()
+    {
+        Console.WriteLine("当前线程id" + Thread.CurrentThread.ManagedThreadId);
+        auto.WaitOne();//阻塞线程
+        Console.WriteLine("等待一秒后执行");
+    }
+    private static void AutoResetEventHandlerTwo()
+    {
+        auto.WaitOne();//阻塞线程
+        Console.WriteLine("我是第二个等待执行");
+    }
     public static async Task Main(string[] args)
     {
+        Thread thread1 = new Thread(AutoResetEventHandler);
+        Console.WriteLine("当前线程id" + Thread.CurrentThread.ManagedThreadId);
+        thread1.Start();
+        Thread.Sleep(5000);
+        auto.Set();
+        // auto.Reset();  在这种情况下new AutoResetEvent(ture) 的 类实例 会变成无信号未终止状态的 如果阻塞线程没有接收到信号量将会一直阻塞下去，直到接收到信号量
+        Thread thread2 = new Thread(AutoResetEventHandlerTwo);
+        thread2.Start();
+        Thread.Sleep(10000);//等待3秒
 
         Env.Load();
 
